@@ -1,0 +1,14 @@
+config.js
+tippecanoe/*
+geojson/*
+storage.json
+*.log
+*.txt
+*.json
+*.mbtiles
+treesnap_terms.txt
+wfid.geo.json
+.env
+output.log
+meta_data.txt
+
