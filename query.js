@@ -1,0 +1,17 @@
+'use strict';
+const config = require('./config');
+const pg = new require('pg').Pool(config.conf);
+
+module.exports = function(queryText, queryValues, callback) {
+  pg.connect(function(db_error, client, release) {
+    if(db_error) return callback(db_error);	// connection failure
+
+    client.query(queryText, queryValues, function(qry_error, result) {
+      release();				// release the client
+
+      if(qry_error) return callback(qry_error);	// query error
+
+      return callback(null, result.rows, result);
+    });
+  });
+}
