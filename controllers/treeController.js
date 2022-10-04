@@ -33,7 +33,8 @@ require("tls").DEFAULT_ECDH_CURVE = "auto";
 		console.log(req.body);
 		db_storage.set('wfid_observation_action_hook_last', req.body);
 		var verification_code = req.body.verification_code;
-		var data = req.body.data;
+		// var data = req.body.data;
+		data = req.body;
 		data = data.events;
 		// Technically this for statement will only have one item 
 		for(var i=0; i<data.length; i++) {
@@ -308,6 +309,381 @@ var generateRandomDouble = function(min, max) {
     return min + range * Math.random();
 };
 
+
+/**
+ * This should return tree_ids from genotype snps from an analysis_id
+ * @param {object} request - Request object
+ * @param {object} response - Response object
+ * @param {function} next - Next middleware function in the application"s request-response cycle   
+ */
+ exports.genotypes_snp_vcf_filtering = async function(req, res, next) {
+	try {
+		var fs = require('fs');
+		var axios = require('axios');
+		var https = require('https');
+
+		const axios_instance = axios.create({
+			httpsAgent: new https.Agent({  
+			  rejectUnauthorized: false
+			})
+		});
+
+		var FormData = require('form-data');		
+		var study_vcf_processing = {};
+		console.log(req.body);
+		var vcf_info = JSON.parse(req.body.vcf_info);
+		var analysis_id = req.body.analysis_id;
+		var galaxy_id = req.body.galaxy_id;
+		var history_id = req.body.history_id;
+		var cartogratree_base_url = req.body.cartogratree_base_url;
+		var studies = Object.keys(vcf_info);
+
+		var all_vars = {
+			cartogratree_base_url: cartogratree_base_url,
+			vcf_info: vcf_info,
+			analysis_id: analysis_id,
+			galaxy_id: galaxy_id,
+			history_id: history_id,
+			studies: studies,
+			study_vcf_processing: {},
+			upload_history_files_count: 0
+		};
+
+		for(var i=0; i<studies.length; i++) {
+			var vcf_original_location = vcf_info[studies[i]];
+			var vcf_exists = false;
+			// check if the vcf exists
+			if (fs.existsSync(vcf_original_location)) {
+				vcf_exists = true;
+			}
+			if(vcf_original_location.endsWith('.vcf')) {
+				if(vcf_exists) {
+					all_vars.study_vcf_processing[studies[i]] = {
+						study: studies[i],
+						vcf_original_location: vcf_info[studies[i]],
+						vcf_filter_generated_location: '',
+						vcf_filter_generated: false,
+						vcf_filtered_location: '',
+						vcf_filtered: false,
+					}
+				}
+				else {
+					console.log('error', 'Could not find the VCF in the path specified. Critical error.')
+				}
+			}
+			else {
+				console.log('error', 'there was a vcf original location which did not end with the .vcf extension - this is a security risk so this file has been ignored')
+			}
+		}
+
+		all_vars['vcf_files_count'] = Object.keys(all_vars.study_vcf_processing).length;
+
+
+
+		// We need to get all selected genotypes indexed into an object key format for searching
+		var snps_selected = {};
+		// Connect to the database and retrieve all records from the analysis data table
+		var pg_n_client = new pg_native_client();
+		console.log('Connecting to database...');
+		pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		//console.log(config.conf.host);
+		//console.log(config.conf.user);
+		//console.log(config.conf.password);
+		pg_n_client.querySync("set datestyle='ISO';");
+		pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
+		pg_n_client.querySync("SET bytea_output TO escape;");
+		pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+
+		var query_str = "SELECT * FROM public.cartogratree_analysis_data WHERE analysis_id = $1 AND variable_name LIKE 'studies_snp_%';";
+		var rows = pg_n_client.querySync(query_str,[analysis_id]);
+		var snps = [];
+		// go through each row which contains csv variable_data
+		for(var i=0; i<rows.length; i++) {
+			var row = rows[i];
+			var variable_data = row['variable_data'];// this is a csv
+			var snps_arr = variable_data.split(',');
+			snps = snps.concat(snps_arr);
+		}
+		pg_n_client.end();
+
+		// Go through each snp and remove the last _ part from the snp
+		for(var i=0; i < snps.length; i++) {
+			var last_index = snps[i].lastIndexOf('_');
+			snps[i] = snps[i].slice(0, last_index - 1);
+		}
+
+		// Now generate the snps_selected index object
+		for(var i=0; i<snps.length; i++) {
+			if(snps_selected[snps[i]] == undefined) {
+				snps_selected[snps[i]] = true;
+			}
+		}
+		// console.log('snps', JSON.stringify(snps))
+
+		// Delete the snps array to save memory
+		snps = [];// empty it
+		
+		console.log('snps_selected object contains ' + Object.keys(snps_selected).length + ' snps');
+		console.log('study_vcf_processing object', all_vars.study_vcf_processing);
+
+		// process each file (we need the studies which contains key to access the rest of processing object)
+		const lineByLine = require('n-readlines');
+		
+		all_vars['vcf_files_generated_count'] = 0; // this is used to generate the new vcf file with various filter changes made to it.
+		for(var i=0; i<all_vars.studies.length; i++) {
+			var study_accession = all_vars.studies[i];
+			var vcf_info_object = all_vars.study_vcf_processing[study_accession];
+
+			all_vars.study_vcf_processing[study_accession]['vcf_filter_generated_location'] = __dirname + '/../store/' + all_vars.analysis_id + '_' + study_accession + '_filter_generated.vcf';
+			// check to see if the file already exists, if it does, delete
+			if (fs.existsSync(all_vars.study_vcf_processing[study_accession]['vcf_filter_generated_location'])) {
+				fs.unlinkSync(all_vars.study_vcf_processing[study_accession]['vcf_filter_generated_location']);
+			}
+			
+			// Open a VCF file for writing line by line	
+			var new_vcf_file = fs.createWriteStream(all_vars.study_vcf_processing[study_accession]['vcf_filter_generated_location'], {
+				flags: 'a' // 'a' means appending (old data will be preserved)
+			});
+
+
+
+			// Open the VCF file for reading
+			var liner = new lineByLine(vcf_info_object['vcf_original_location']);
+			
+			var line = "";
+			var headers_line = "";
+			var headers_found = false;
+			var filter_column = -1;
+			var lineNumber = 0;
+			
+			while (line = liner.next()) {
+				line = line.toString('ascii');
+				line_tab_parts = line.split('\t');
+				if(line.startsWith('#CHROM')) {
+					headers_line = line;
+					headers_line_parts = headers_line.split('\t');
+					console.log('headers_line parts', headers_line_parts);
+					filter_column = headers_line_parts.indexOf('FILTER');
+					headers_found = true;
+				}
+
+				var new_line = line;
+				if(headers_found == true) {
+					if(snps_selected[line_tab_parts[0]] == undefined) {
+						// alter the line to the following:
+						// replace PASS with FAIL in the FILTER COLUMN
+						// write the line to the new file
+						
+						new_line = new_line.replace('PASS', 'FAIL');
+					}
+				}
+
+				new_vcf_file.write(new_line + "\r\n");
+
+				
+
+				if(lineNumber % 1000 == 0) {
+					// console.log('Line ' + lineNumber + ': ' + line.toString('ascii'));
+				}
+				lineNumber++;
+			}
+			
+			console.log('end of line reached');
+
+			// Close the read file
+			function file_end(new_vcf_file, study_accession, vcf_original_location) {
+				//var current_study_accession = study_accession; // not sure if this is async correct
+				new_vcf_file.end(function () {
+					console.log('File save end');
+					new_vcf_file.close();
+					all_vars.vcf_files_generated_count = all_vars.vcf_files_generated_count + 1;
+					all_vars.study_vcf_processing[study_accession]['vcf_filter_generated'] = true;	
+					console.log('File save close');
+
+				});
+			}
+			file_end(new_vcf_file,study_accession, vcf_info_object['vcf_original_location']); // calls the function to remember the parameter values
+
+			// new_vcf_file.end(function () {
+			// 	console.log('File save end');
+			// 	new_vcf_file.close();
+			// 	vcf_files_generated_count = vcf_files_generated_count + 1;
+			// 	study_vcf_processing[study_accession]['vcf_filter_generated'] = true;	
+			// 	console.log('File save close');	
+			// });
+			// new_vcf_file.close()
+		}
+
+		// VCF GENERATION WITH FILTER MODIFICATIONS DONE TO THE FILTER COLUMN
+		// NOW CONTINUE TO PERFORM THE ACTUAL FILTERING USING VCF TOOLS
+		var interval_check_generated_completion = setInterval(function() {
+			console.log('Interval checking on VCF generation...');
+			console.log('vcf_files_generated_count', all_vars.vcf_files_generated_count);
+			console.log('vcf_files_count', all_vars.vcf_files_count);
+			if(all_vars.vcf_files_generated_count == all_vars.vcf_files_count) {
+				console.log('All VCF files have been generated and is now about to be filtered')
+				// all files have been finished being generated
+				// so now we need to execute vcftools to perform the actual filter
+				for(var i=0; i<all_vars.studies.length; i++) {
+					var study_accession = all_vars.studies[i];
+					var vcf_info_object = all_vars.study_vcf_processing[study_accession];
+
+					all_vars.study_vcf_processing[study_accession]['vcf_filtered_location'] = __dirname + '/../store/' + all_vars.analysis_id + '_' + study_accession + '_filtered.vcf';
+
+
+					if(fs.existsSync(all_vars.study_vcf_processing[study_accession]['vcf_filtered_location'])) {
+						fs.unlink(all_vars.study_vcf_processing[study_accession]['vcf_filtered_location']);
+					}
+
+					const exec = require('child_process').exec;
+					// code = execSync('node -v');
+					var cmd = "/usr/local/bin/vcftools --vcf " + vcf_info_object['vcf_filter_generated_location'] + " --stdout --recode --remove-filtered-all  > " + vcf_info_object['vcf_filtered_location'];
+					console.log('cmd', cmd);
+					var child = exec(cmd, function(error, stdout, stderr) {
+						
+						if(error) {
+							console.log(error);
+							results['error'] = true;
+							// res.send(JSON.stringify(results));
+							return;
+						}
+				
+						console.log('New filtered VCF generated');
+
+						// We have the filtered file and now we can upload it back to server
+						// Open file as a readable stream
+						const fileStream = fs.createReadStream(vcf_info_object['vcf_filtered_location']);
+
+
+						const form = new FormData();
+						// Pass file stream directly to form
+						form.append('galaxy_id', all_vars['galaxy_id']);
+						form.append('history_id', all_vars['history_id']);
+						form.append('file1', fileStream, 'AN' + all_vars.analysis_id + '_' + vcf_info_object['study'] + '_snps.vcf');
+				
+
+						var url = all_vars.cartogratree_base_url + "/cartogratree_uianalysis/upload_file_to_history";
+						axios_instance.post(url, form, {
+							headers: {
+								...form.getHeaders()
+							},	
+							'maxContentLength': Infinity,
+							'maxBodyLength': Infinity						
+						}).then(function(response) {
+							 console.log(response.data)
+							 var resp_object = JSON.stringify(response.data);
+							 all_vars.upload_history_files_count = all_vars.upload_history_files_count + 1;
+							// fs.unlink(all_vars.study_vcf_processing[study_accession]['vcf_filtered_location']);
+						})
+						.catch(function (error) {
+							console.log(error);
+							all_vars.upload_history_files_count = all_vars.upload_history_files_count + 1;
+							
+							// fs.unlink(all_vars.study_vcf_processing[study_accession]['vcf_filtered_location']);
+						});
+
+
+
+						//exec("rm -f " + __dirname + '/../store/' + analysis_id + '_pca_phenotypes.csv');
+						//exec("rm -f " + __dirname + '/../store/' + analysis_id + '_pca_phenotypes.jpeg');
+						// res.send(JSON.stringify(results));
+					});
+
+
+				}
+
+				// stop the interval as well
+				clearInterval(interval_check_generated_completion);
+
+				var check_if_files_uploaded_interval = setInterval(function() {
+					console.log('Checking if files have been uploaded to galaxy...');
+					if(all_vars.upload_history_files_count == all_vars.vcf_files_count) {
+						console.log('Files finished uploading');
+						clearInterval(check_if_files_uploaded_interval);
+						res.send(JSON.stringify({result: 'success'}));
+					}
+				},1000);
+			}
+		}, 1000);
+		
+
+		// res.status(200).send({'results':'ok'});	
+	}
+	catch (err) {
+		console.log(err);
+		res.status(400).send({'results':err});
+	}
+ }
+
+/**
+ * This should return tree_ids from genotype snps from an analysis_id
+ * @param {object} request - Request object
+ * @param {object} response - Response object
+ * @param {function} next - Next middleware function in the application"s request-response cycle   
+ */
+exports.genotypes_snps_get_tree_ids_by_analysis_id = function(req, res, next) {
+	try {
+		var analysis_id = req.body.analysis_id;
+		// console.log(req.body);
+		// Let us use query synchronized for procedural querying
+		var pg_n_client = new pg_native_client();
+
+		console.log('Connecting to database...');
+		pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		//console.log(config.conf.host);
+		//console.log(config.conf.user);
+		//console.log(config.conf.password);
+		pg_n_client.querySync("set datestyle='ISO';");
+		pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
+		pg_n_client.querySync("SET bytea_output TO escape;");
+		pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+
+		var query_str = "SELECT * FROM public.cartogratree_analysis_data WHERE analysis_id = $1 AND variable_name LIKE 'studies_snp_%';";
+		var rows = pg_n_client.querySync(query_str,[analysis_id]);
+		var snps = [];
+		// go through each row which contains csv variable_data
+		for(var i=0; i<rows.length; i++) {
+			var row = rows[i];
+			var variable_data = row['variable_data'];// this is a csv
+			var snps_arr = variable_data.split(',');
+			snps = snps.concat(snps_arr);
+		}
+		// console.log('snps', JSON.stringify(snps))
+
+
+		var query_str = "";
+		query_str = "select distinct unnest(tree_accessions) from chado.tree_accessions_per_individual_marker where marker in(";
+		for(var i=0; i<snps.length; i++) {
+			if(i > 0) {
+				query_str += ',';
+			}
+			query_str += "'" + snps[i] + "'";
+		}
+		query_str += ");"
+		// console.log(query_str);
+
+		// SELECT av.uniquename, latitude, longitude FROM ct_trees_all_view av JOIN (
+		// 	SELECT uniquename FROM chado.stock_genotype sg LEFT JOIN chado.stock s ON sg.stock_id = 
+		// 	s.stock_id 
+		// 	WHERE sg.stock_genotype_id IN (
+		// 	   SELECT feature_id FROM chado.feature WHERE uniquename IN ('scaffold_10_12172880')
+		// 	)
+		//   ) as t_output ON av.uniquename = t_output.uniquename
+
+
+		var rows = [];
+		if(snps.length > 0) {
+			rows = pg_n_client.querySync(query_str,[]);
+		}
+		pg_n_client.end();	
+		res.send(JSON.stringify(rows));
+	}
+	catch (err) {
+		console.log(err);
+		res.status(400).send('error:' + err);
+	}
+}
+
 /**
  * This should return overlapping genotypes by study
  * @param {object} request - Request object
@@ -323,6 +699,662 @@ var generateRandomDouble = function(min, max) {
 	}
 	if(studies.length > 0) {
 		var query_str = 'SELECT accessions, cardinality(markers) FROM chado.test_studies_marker_overlap WHERE ';
+		console.log(query_str);
+		for(var i=0; i<studies.length; i++) {
+			if(i > 0) {
+				query_str += " AND '" + studies[i] + "' = ANY (accessions) ";
+			}
+			else {
+				query_str += " '" + studies[i] + "' = ANY (accessions) ";
+			}
+		}
+		if(studies.length > 0) {
+			query_str += ' AND cardinality(accessions) = ' + studies.length
+		}
+		console.log(query_str);
+		query (query_str, [], function (err, rows, result) {
+			if (err) {
+				console.log(err);
+				res.status(400);
+				return;
+		}
+		//console.log(rows);
+
+		res.status(200).json(rows);
+		});
+	}
+	else {
+		var rows = [];
+		res.status(200).json(rows);
+	}
+ }
+
+
+ /**
+ * This should return all phenotypes by studies specified (overlapping and none overlapping)
+ * @param {object} request - Request object
+ * @param {object} response - Response object
+ * @param {function} next - Next middleware function in the application"s request-response cycle   
+ */
+  exports.phenotypes_phenotypes_count_by_overlapping_studies = function(req, res, next) {
+	console.log('phenotypes_phenotypes_count_by_overlapping_studies');
+	console.log(req.body.studies);
+	var results = {};
+	var studies = [];
+	var phenotype_name = req.body.phenotype_name;
+	if(req.body.studies != undefined) {
+		studies = JSON.parse(req.body.studies); // should be an array
+	}
+	if(studies.length > 0) {
+		// First version
+		// var query_str = 'SELECT count(distinct(phenotype_id)) as c1, units FROM (';
+		// // console.log(query_str);
+		// for(var i=0; i<studies.length; i++) {
+		// 	if(i > 0) {
+		// 		query_str += " UNION (SELECT * FROM chado.phenotype_view WHERE phenotype = '" + phenotype_name + "' AND study_accession = '" + studies[i] + "') ";
+		// 	}
+		// 	else {
+		// 		query_str += "(SELECT * FROM chado.phenotype_view WHERE phenotype = '" + phenotype_name +"' AND study_accession = '" + studies[i] + "') "
+		// 	}
+		// }
+		// query_str += ") as t_output GROUP BY units";
+
+		// Optimized version suggested by Emily G.
+		var query_str = 'SELECT count(distinct(phenotype_id)) as c1, units FROM chado.phenotype_view ';
+		query_str += "WHERE phenotype = '" + phenotype_name + "' AND study_accession IN (";
+		for(var i=0; i<studies.length; i++) {
+			if(i > 0) {
+				query_str += ',';
+			}
+			query_str += "'" + studies[i] + "'";
+		}
+		query_str += ") group by units;";
+
+		console.log(query_str);
+		query (query_str, [], function (err, rows, result) {
+			if (err) {
+				console.log(err);
+				res.status(400);
+				return;
+		}
+		//console.log(rows);
+		
+		results['rows'] = rows;
+		results['phenotype_name'] = phenotype_name;
+		res.status(200).json(results);
+		});
+	}
+	else {
+		var rows = [];
+		results['rows'] = rows;
+		results['phenotype_name'] = phenotype_name;
+		res.status(200).json(results);
+	}
+ }
+
+  /**
+ * This should return all phenotypes by studies specified (overlapping and none overlapping)
+ * @param {object} request - Request object
+ * @param {object} response - Response object
+ * @param {function} next - Next middleware function in the application"s request-response cycle   
+ */
+exports.phenotypes_pca = function(req, res, next) {
+  try {
+    console.log('phenotypes_pca');
+    var results = {};
+    var studies = [];
+    var analysis_id = req.body.analysis_id;
+	if(analysis_id == undefined) {
+		results['error'] = true;
+		res.send(JSON.stringify(results));
+		return;
+	}
+	if(analysis_id == "") {
+		results['error'] = true;
+		res.send(JSON.stringify(results));
+		return;
+	}
+	analysis_id = parseInt(analysis_id);
+    if(req.body.studies != undefined) {
+      studies = JSON.parse(req.body.studies); // should be an array
+      console.log('studies', JSON.stringify(studies));
+    }
+    var phenotypes = [];
+    if(req.body.phenotypes != undefined) {
+      phenotypes = JSON.parse(req.body.phenotypes); // should be an array
+      console.log('phenotypes', JSON.stringify(phenotypes));
+    }	
+    console.log('it came here');
+    // for each study
+    var rows_results = [];
+    for(var i=0; i<studies.length; i++) {
+      query_str = "SELECT * FROM chado.phenotype_view WHERE study_accession = '" + studies[i] + "'"; 	
+      query_str += " AND phenotype IN (";
+      for (var j=0; j<phenotypes.length; j++) {
+        if(j > 0) {
+          query_str += ",";
+        }
+        query_str += "'" + phenotypes[j] + "'";
+      }
+      query_str += ")";
+
+      console.log(query_str);
+      // Let us use query synchronized for procedural querying
+      var pg_n_client = new pg_native_client();
+
+      console.log('Connecting to database...');
+      pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+      //console.log(config.conf.host);
+      //console.log(config.conf.user);
+      //console.log(config.conf.password);
+      pg_n_client.querySync("set datestyle='ISO';");
+      pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
+      pg_n_client.querySync("SET bytea_output TO escape;");
+      pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+
+      var rows = pg_n_client.querySync(query_str,[]);
+      rows_results = rows_results.concat(rows);
+      // console.log('rows_results', JSON.stringify(rows_results));
+      results['updated'] = true;
+
+      // NOTE: ALWAYS REMEMBER TO CLOSE THE pg_n_client connection at the end!
+      pg_n_client.end();	
+    }
+
+    // Generate CSV like object (using the phenotype names as columns / attributes - NOT KEYS)
+    // The keys will be the plant_accession
+    var csv_object = {};
+
+
+    // Go through each rows_results which will contain the plant accessions
+    console.log('Generate CSV object');
+    for(var i=0; i<rows_results.length; i++) {
+      // check if plant_accession isn't in the rejected_plant_accessions
+      var plant_accession = rows_results[i]['plant_accession'];
+      var phenotype_name = rows_results[i]['phenotype'];
+      var value = rows_results[i]['value'];
+      if(value != 'NA') {
+        if(csv_object[plant_accession] == undefined) {
+          csv_object[plant_accession] = {};
+        }
+        csv_object[plant_accession][phenotype_name] = value;
+      }
+    }
+
+    // Remove all rows containg missing values
+    console.log('Remove all rows containing missing values');
+    var keys = Object.keys(csv_object);
+    console.log('csv_object contains ' + keys.length + ' keys');
+    for(var i=0; i<keys.length; i++) {
+      if(i == 0) {
+        console.log(csv_object[keys[i]]);
+      }
+      if(Object.keys(csv_object[keys[i]]).length < phenotypes.length) {
+        // this plant accession row contains missing values so delete it
+        delete csv_object[keys[i]]
+      } 
+    }
+
+    // Double check the clean up
+    keys = Object.keys(csv_object);
+    console.log('csv_object contains ' + keys.length + ' keys'); 
+    // console.log(csv_object[keys[0]]);
+
+
+    // Now we have csv object with keys (plant_accession) and attributes are the phenotypes
+    // Generate the CSV header
+    console.log('Generate CSV header');
+    var csv_data = "Accession,";
+    for(var i=0; i < phenotypes.length; i++) {
+      if(i > 0) {
+        csv_data += ",";
+      }
+      csv_data += phenotypes[i];
+    }
+    csv_data += "\n";
+    console.log('header', csv_data);
+
+
+    // Add the csv_object data
+    //console.log('Generate CSV body data');
+    var keys = Object.keys(csv_object);
+    console.log('keys length', keys.length);
+    console.log(phenotypes.length);
+    for(var i=0; i<keys.length; i++) {
+      csv_data += keys[i]; // accession
+      if(phenotypes.length > 0) {
+        csv_data += ",";
+      }
+      for(j=0; j<phenotypes.length; j++) {
+        if(j > 0) {
+          csv_data += ",";
+        }
+        csv_data += csv_object[keys[i]][phenotypes[j]];
+      }
+      csv_data += "\n";
+    }
+    csv_data += "\n";
+
+    // Now we have csv data - awesome
+    console.log(csv_data);
+	var fs = require('fs');
+    fs.writeFileSync(__dirname + '/../store/' + analysis_id + '_pca_phenotypes.csv', csv_data);
+
+    //const execSync = require('child_process').execSync;
+	//code = execSync('node -v');
+    const exec = require('child_process').exec;
+	// code = execSync('node -v');
+	var cmd = "Rscript " + __dirname + "/../pca_phenotypes.R " + __dirname + "/../store/ " + analysis_id;
+	
+	var child = exec(cmd, function(error, stdout, stderr) {
+		
+		if(error) {
+			console.log(error);
+			results['error'] = true;
+			res.send(JSON.stringify(results));
+			return;
+		}
+
+		// console.log(JSON.stringify(stdout));
+		// var lines = stdout.split("\n");
+		// // var analysis_id = "";
+		// for(var i=0; i<lines.length; i++) {
+		// 	var line = lines[i];
+		// 	console.log('line ' + i + ':' + line);
+		// 	if(line.includes('analysis_id:')) {
+		// 		var line_parts = line.split('analysis_id:');
+		// 		console.log(JSON.stringify(line_parts));
+		// 		//analysis_id = line_parts[1].replaceAll('"','');
+		// 		break;
+		// 	}
+		// }
+		// console.log('Analysis ID:' + analysis_id);
+
+
+		// console.log(JSON.stringify(stderr));
+
+		try {
+			var fs = require('fs');
+			var data = fs.readFileSync(__dirname + '/../store/' + analysis_id + '_pca_phenotypes.jpeg');
+			var data_base64 = Buffer.from(data).toString('base64');
+
+			results['data_base64'] = data_base64;
+			results['updated'] = true;
+
+			exec("rm -f " + __dirname + '/../store/' + analysis_id + '_pca_phenotypes.csv');
+			exec("rm -f " + __dirname + '/../store/' + analysis_id + '_pca_phenotypes.jpeg');
+		}
+		catch (err_pca_gen) {
+			console.log(err_pca_gen);
+		}
+		res.send(JSON.stringify(results));
+	});
+
+
+	
+  }
+  catch (err) {
+    console.log(err);
+	res.send(JSON.stringify(results));
+  }
+  
+}
+
+  /**
+ * This should return all phenotypes by studies specified (overlapping and none overlapping)
+ * @param {object} request - Request object
+ * @param {object} response - Response object
+ * @param {function} next - Next middleware function in the application"s request-response cycle   
+ */
+exports.environmental_scatter_plot = function(req, res, next) {
+	console.log('environmental_scatter_plot');
+	var results = {};
+	console.log('req.body', req.body);
+    var analysis_id = req.body.analysis_id;
+	var csv_data = req.body.csv_data;
+	if(analysis_id == undefined) {
+		results['error'] = true;
+		res.send(JSON.stringify(results));
+		return;
+	}
+	var fs = require('fs');
+	fs.writeFileSync(__dirname + "/../store/" + analysis_id + '_environmental_scatter_plot.csv', csv_data);	
+	try {
+		const exec = require('child_process').exec;
+		// code = execSync('node -v');
+		var cmd = "Rscript " + __dirname + "/../environmental_scatter_plot.R " + __dirname + "/../store " + analysis_id;
+		
+		var child = exec(cmd, function(error, stdout, stderr) {
+			
+			if(error) {
+				console.log(error);
+				results['error'] = true;
+				res.send(JSON.stringify(results));
+				return;
+			}
+
+
+			try {
+				var fs = require('fs');
+				var data = fs.readFileSync(__dirname + '/../store/' + analysis_id + '_environmental_scatter_plot.jpeg');
+				var data_base64 = Buffer.from(data).toString('base64');
+				// var data_base64 = Buffer(data).toString('base64');
+	
+				results['data_base64'] = data_base64;
+				results['updated'] = true;
+	
+				exec("rm -f " + __dirname + '/../store/' + analysis_id + '_environmental_scatter_plot.csv');
+				exec("rm -f " + __dirname + '/../store/' + analysis_id + '_environmental_scatter_plot.jpeg');
+			}
+			catch (err_env_scatter_plot_gen) {
+				console.log(err_env_scatter_plot_gen);
+			}
+			res.send(JSON.stringify(results));			
+		});
+	}
+	catch (err) {
+		console.log('err', err);
+		res.send(JSON.stringify(results));	
+	}
+}
+
+ /**
+ * Inserts data into the analysis_data table
+ * @param {object} request - Request object
+ * @param {object} response - Response object
+ * @param {function} next - Next middleware function in the application"s request-response cycle   
+ */
+  exports.analysis_insert_data = function(req, res, next) {
+	var results = {
+		updated: false
+	};
+	try {
+		var variable_name = req.body.variable_name;
+		var variable_data = req.body.variable_data;
+		var analysis_id = req.body.analysis_id;
+
+		// Let us use query synchronized for procedural querying
+		var pg_n_client = new pg_native_client();
+
+		console.log('Connecting to database...');
+		pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		//console.log(config.conf.host);
+		//console.log(config.conf.user);
+		//console.log(config.conf.password);
+		pg_n_client.querySync("set datestyle='ISO';");
+		pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
+		pg_n_client.querySync("SET bytea_output TO escape;");
+		pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+
+		// Insert the row
+		var query_str = "INSERT INTO public.cartogratree_analysis_data (analysis_id, variable_name, variable_data) VALUES ($1,$2,$3);";
+		pg_n_client.querySync(query_str,[analysis_id, variable_name, variable_data]);
+		results['updated'] = true;
+
+		// NOTE: ALWAYS REMEMBER TO CLOSE THE pg_n_client connection at the end!
+		pg_n_client.end();
+	}
+	catch (err) {
+		console.log(err);
+	}
+
+	res.send(JSON.stringify(results));
+		
+  }
+
+/**
+ * Deletes data into the analysis_data table
+ * @param {object} request - Request object
+ * @param {object} response - Response object
+ * @param {function} next - Next middleware function in the application"s request-response cycle   
+ */
+exports.analysis_delete_data = function(req, res, next) {
+	var results = {
+		updated: false
+	};
+	try {
+		var variable_name = req.body.variable_name;
+		// var variable_data = req.body.variable_data;
+		var analysis_id = req.body.analysis_id;
+
+		// Let us use query synchronized for procedural querying
+		var pg_n_client = new pg_native_client();
+
+		console.log('Connecting to database...');
+		pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		//console.log(config.conf.host);
+		//console.log(config.conf.user);
+		//console.log(config.conf.password);
+		pg_n_client.querySync("set datestyle='ISO';");
+		pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
+		pg_n_client.querySync("SET bytea_output TO escape;");
+		pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+
+		// Insert the row
+		var query_str = "DELETE FROM public.cartogratree_analysis_data WHERE analysis_id = $1 AND variable_name = $2;";
+		pg_n_client.querySync(query_str,[analysis_id, variable_name]);
+		results['updated'] = true;
+
+		// NOTE: ALWAYS REMEMBER TO CLOSE THE pg_n_client connection at the end!
+		pg_n_client.end();
+	}
+	catch (err) {
+		console.log(err);
+	}
+
+	res.send(JSON.stringify(results));
+		
+}
+
+ /**
+ * This should return all lat lon values from the specified tree_ids
+ * @param {object} request - Request object
+ * @param {object} response - Response object
+ * @param {function} next - Next middleware function in the application"s request-response cycle   
+ */
+exports.environmental_get_locations_from_treeids = function(req,res,next) {
+	try {
+		var tree_ids = JSON.parse(req.body.tree_ids);
+		var query_str = "SELECT distinct(latitude, longitude) FROM ct_trees_all_view WHERE uniquename IN (";
+		for(var i=0; i<tree_ids.length; i++) {
+			if(i > 0) {
+				query_str += ',';
+			}
+			query_str += "'" + tree_ids[i]+ "'"
+		}
+		query_str += ")";
+		
+		console.log(query_str);
+		query (query_str, [], function (err, rows, result) {
+			if (err) {
+				console.log(err);
+				res.status(400);
+				return;
+			}
+			else {
+				console.log(rows);
+				res.status(200).json(rows);
+			}
+		});
+	}
+	catch (err) {
+		res.status(400).send('error:' + err);
+		console.log(err);
+	
+	}
+}
+
+ /**
+ * This should return all lat lon values from the specified tree_ids
+ * @param {object} request - Request object
+ * @param {object} response - Response object
+ * @param {function} next - Next middleware function in the application"s request-response cycle   
+ */
+  exports.environmental_get_envdata_from_db_table = function(req,res,next) {
+	try {
+		var layer_id = req.body.layer_id;
+		var property_id = req.body.property_id;
+		var property_name = req.body.property_name;
+		var locations = JSON.parse(req.body.locations);
+		
+		var query_str = "SELECT latitude, longitude, property_name, property_value FROM public.cartogratree_envdata_" + layer_id + " WHERE property_id = " + property_id + " AND (";
+		for(var i=0; i<locations.length; i++) {
+			if(i > 0) {
+				query_str += ' OR ';
+			}
+			query_str += " (latitude = " + locations[i]['latitude'] + " AND longitude = " + locations[i]['longitude'] + ") "
+		}
+		query_str += ")";
+		
+		console.log(query_str);
+		query (query_str, [], function (err, rows, result) {
+			if (err) {
+				console.log(err);
+				res.status(400);
+				return;
+			}
+			else {
+				// console.log(rows);
+				res.status(200).json({
+					rows: rows,
+					layer_id: layer_id,
+					property_name: property_name,
+					property_id: property_id
+				});
+			}
+		});
+	}
+	catch (err) {
+		res.status(400).send('error:' + err);
+		console.log(err);
+	
+	}
+}
+
+ /**
+ * This should return all phenotypes by studies specified (overlapping and none overlapping)
+ * @param {object} request - Request object
+ * @param {object} response - Response object
+ * @param {function} next - Next middleware function in the application"s request-response cycle   
+ */
+  exports.phenotypes_phenotypes_values_by_overlapping_studies = function(req, res, next) {
+	console.log('phenotypes_phenotypes_values_by_overlapping_studies');
+	console.log(req.body.studies);
+	
+	var studies = [];
+	var phenotype_name = req.body.phenotype_name;
+	if(req.body.studies != undefined) {
+		studies = JSON.parse(req.body.studies); // should be an array
+	}
+	if(studies.length > 0) {
+		// var query_str = 'SELECT distinct(phenotype_id), value, plant_accession, study_accession, units FROM (';
+		// console.log(query_str);
+		// for(var i=0; i<studies.length; i++) {
+
+		// 	if(i > 0) {
+		// 		query_str += " UNION (SELECT * FROM chado.phenotype_view WHERE phenotype = '" + phenotype_name + "' AND study_accession = '" + studies[i] + "') ";
+		// 	}
+		// 	else {
+		// 		query_str += "(SELECT * FROM chado.phenotype_view WHERE phenotype = '" + phenotype_name +"' AND study_accession = '" + studies[i] + "') "
+		// 	}
+		// }
+		// query_str += ") as t_output";
+
+
+		// Optimized version suggested by Emily G.
+		var query_str = 'SELECT distinct(phenotype_id), value, plant_accession, study_accession, units FROM chado.phenotype_view ';
+		query_str += "WHERE phenotype = '" + phenotype_name + "' AND study_accession IN (";
+		for(var i=0; i<studies.length; i++) {
+			if(i > 0) {
+				query_str += ',';
+			}
+			query_str += "'" + studies[i] + "'";
+		}
+		query_str += ")";
+
+		console.log(query_str);
+		query (query_str, [], function (err, rows, result) {
+			if (err) {
+				console.log(err);
+				res.status(400);
+				return;
+		}
+		//console.log(rows);
+
+		if(req.body.compression != undefined) {
+			var data = zlib_deflate_base64(JSON.stringify(rows));
+			res.status(200).json({
+				zlib_deflated_base64: data
+			});
+		}
+		else {
+			res.status(200).json(rows);
+		}
+		});
+	}
+	else {
+		var rows = [];
+		res.status(200).json(rows);
+	}
+ }
+
+/**
+ * This should return all phenotypes by studies specified (overlapping and none overlapping)
+ * @param {object} request - Request object
+ * @param {object} response - Response object
+ * @param {function} next - Next middleware function in the application"s request-response cycle   
+ */
+ exports.phenotypes_phenotypes_all_by_studies_views = function(req, res, next) {
+	console.log('phenotypes_phenotypes_all_by_studies_views');
+	console.log(req.body.studies);
+	var studies = [];
+	if(req.body.studies != undefined) {
+		studies = JSON.parse(req.body.studies); // should be an array
+	}
+	if(studies.length > 0) {
+		var query_str = 'SELECT * FROM chado.phenotypes_by_study WHERE ';
+		console.log(query_str);
+		for(var i=0; i<studies.length; i++) {
+			if(i > 0) {
+				query_str += " OR accession = '" + studies[i] + "' ";
+			}
+			else {
+				query_str += " accession = '" + studies[i] + "' ";
+			}
+		}
+		console.log(query_str);
+		query (query_str, [], function (err, rows, result) {
+			if (err) {
+				console.log(err);
+				res.status(400);
+				return;
+		}
+		//console.log(rows);
+
+		res.status(200).json(rows);
+		});
+	}
+	else {
+		var rows = [];
+		res.status(200).json(rows);
+	}
+ }
+
+/**
+ * This should return overlapping phenotypes by studies specified
+ * @param {object} request - Request object
+ * @param {object} response - Response object
+ * @param {function} next - Next middleware function in the application"s request-response cycle   
+ */
+ exports.phenotypes_phenotypes_overlaps_by_studies_views = function(req, res, next) {
+	console.log('phenotypes_phenotypes_overlaps_by_studies_views');
+	console.log(req.body.studies);
+	var studies = [];
+	if(req.body.studies != undefined) {
+		studies = JSON.parse(req.body.studies); // should be an array
+	}
+	if(studies.length > 0) {
+		var query_str = 'SELECT * FROM chado.phenotype_overlap_between_studies WHERE ';
 		console.log(query_str);
 		for(var i=0; i<studies.length; i++) {
 			if(i > 0) {
@@ -520,6 +1552,125 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 	}
 	res.send(JSON.stringify(results));
 }
+
+/**
+ * This function will perform query to insert markers
+ * for an entire study stores it in the analysis_data
+ * @param {object} request - Request object
+ * @param {object} response - Response object
+ * @param {function} next - Next middleware function in the application"s request-response cycle   
+ */ 
+ exports.analysis_insert_markers_study_all = async function(req, res, next) {
+	try {
+		var results = {
+			updated: false
+		};
+
+		// Let us use query synchronized for procedural querying
+		var pg_n_client = new pg_native_client();
+
+		console.log('Connecting to database...');
+		pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		//console.log(config.conf.host);
+		//console.log(config.conf.user);
+		//console.log(config.conf.password);
+		pg_n_client.querySync("set datestyle='ISO';");
+		pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
+		pg_n_client.querySync("SET bytea_output TO escape;");
+		pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+
+		console.log('req.body:' + JSON.stringify(req.body));
+
+		var analysis_id = req.body.analysis_id;
+		var study_id = req.body.study_id;
+		var variable_name = "studies_snp_all_" + study_id;
+		
+		// Delete the row if this already exists (just in case)
+		var query_str = "DELETE FROM cartogratree_analysis_data WHERE variable_name = $1 AND analysis_id = $2";
+		pg_n_client.querySync(query_str,[variable_name,analysis_id]);
+
+
+		// Get the markers that overlap
+		var query_str = "select accession, markers from chado.markers_and_studies_names where accession in ($1) ";
+		// query_str += " order by cardinality desc limit 1";
+
+		var rows = pg_n_client.querySync(query_str,[study_id]);
+		if(rows.length > 0) {
+			var markers = rows[0].markers;
+			console.log(markers);
+			var query_str = "INSERT INTO cartogratree_analysis_data (analysis_id, variable_name, variable_data)";
+			query_str += " VALUES ($1,$2,$3)";
+			pg_n_client.querySync(query_str, [analysis_id,variable_name,markers]);
+			results['updated'] = true;
+
+			// This code was used to verify that the data gets inserted into the database
+			// var query_str = "SELECT * FROM cartogratree_analysis_data WHERE analysis_id = $1 AND variable_name = $2";
+			// var rows2 = pg_n_client.querySync(query_str, [analysis_id,variable_name]);
+			// if(rows2.length > 0) {
+			// 	console.log(rows2[0].variable_data);
+			// 	console.log('variable_data');
+			// }
+		}
+
+		// NOTE: ALWAYS REMEMBER TO CLOSE THE pg_n_client connection at the end!
+		pg_n_client.end();
+
+	}
+	catch (err) {
+		console.log(err);
+	}
+
+	res.send(JSON.stringify(results));
+ }
+
+ /**
+ * This function will perform query to delete markers
+ * for an entire study stores it in the analysis_data
+ * @param {object} request - Request object
+ * @param {object} response - Response object
+ * @param {function} next - Next middleware function in the application"s request-response cycle   
+ */ 
+  exports.analysis_delete_markers_study_all = async function(req, res, next) {
+	try {
+		var results = {
+			updated: false
+		};
+
+		// Let us use query synchronized for procedural querying
+		var pg_n_client = new pg_native_client();
+
+		console.log('Connecting to database...');
+		pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		//console.log(config.conf.host);
+		//console.log(config.conf.user);
+		//console.log(config.conf.password);
+		pg_n_client.querySync("set datestyle='ISO';");
+		pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
+		pg_n_client.querySync("SET bytea_output TO escape;");
+		pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+
+		console.log('req.body:' + JSON.stringify(req.body));
+
+		var analysis_id = req.body.analysis_id;
+		var study_id = req.body.study_id;
+		var variable_name = "studies_snp_all_" + study_id;
+		
+		// Delete the row if this already exists (just in case)
+		var query_str = "DELETE FROM cartogratree_analysis_data WHERE variable_name = $1 AND analysis_id = $2";
+		pg_n_client.querySync(query_str,[variable_name,analysis_id]);
+
+		results['updated'] = true;
+
+		// NOTE: ALWAYS REMEMBER TO CLOSE THE pg_n_client connection at the end!
+		pg_n_client.end();
+
+	}
+	catch (err) {
+		console.log(err);
+	}
+
+	res.send(JSON.stringify(results));
+ }
 
 /**
  * This function will perform query to check for overlapping markers
@@ -905,7 +2056,22 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 	 query_str += "(select unnest(markers) from markers_and_studies_names where accession = '" + study_id + "')";
 	 query_str += " EXCEPT ";
 	 query_str += "(select distinct markers from ";
-	 query_str += "(select unnest(markers) as markers from test_studies_marker_overlap WHERE '" + study_id + "' = ANY (accessions))w) ";
+	 query_str += "(select unnest(markers) as markers from test_studies_marker_overlap WHERE ";
+	 var c1 = 0;
+	 for(var j=0; j<study_ids_arr.length;j++) {
+		var tmp_study_id = study_ids_arr[j];
+		if(tmp_study_id != study_id) {
+			if(c1 > 0) {
+				query_str  += " OR ";
+			}
+			query_str += "'" + tmp_study_id + "' = ANY (accessions) ";
+			c1 = c1 + 1;
+		}
+		
+	 }
+	 query_str += ")w)";
+	 // This has a bug when I test it with only 408 and 480 ()
+	 // query_str += "(select unnest(markers) as markers from test_studies_marker_overlap WHERE '" + study_id + "' = ANY (accessions))w) ";
 	 query_str += ")";
 	 query_str += "as markers )";
 	 query_str += "x)";
@@ -979,7 +2145,15 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 
 	   res.send(JSON.stringify(results));
 	}
-	catch (err) { console.log(err) }
+	catch (err) { 
+		try {
+			pg_n_client.end();
+		}
+		catch (err2) {
+
+		}
+		console.log(err) 
+	}
 }
 
 /**
@@ -1180,7 +2354,15 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 
 		res.send(JSON.stringify(results));
 	 }
-	 catch (err) { console.log(err) }
+	 catch (err) {
+		try {
+			pg_n_client.end();
+		} 
+		catch (err2) {
+			console.log(err2);
+		}
+		console.log(err) 
+	}
  }
 
  /**
@@ -1199,8 +2381,59 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 	return pairs.concat(pairwise(rest));
   }
   
-  
+/**
+ * This should return the snps for a specific study
+ * @param {object} request - Request object
+ * @param {object} response - Response object
+ * @param {function} next - Next middleware function in the application"s request-response cycle   
+ */
+ exports.genotypes_snps_by_study = function(req, res, next) {
+	try {
+		var study = req.body.study;
+		var query_str = "SELECT * FROM chado.markers_and_studies_names WHERE accession = $1";
+		query (query_str, [study], function (err, rows, result) {
+			if (err) {
+				console.log(err);
+				res.status(400);
+				return;
+			}
 
+			res.status(200).send(JSON.stringify(rows));
+		});
+	}
+	catch (err) {
+		res.status(400).send('Error');
+	}
+}
+
+/**
+ * This should return the snps for a specific study
+ * @param {object} request - Request object
+ * @param {object} response - Response object
+ * @param {function} next - Next middleware function in the application"s request-response cycle   
+ */
+ exports.genotypes_snps_count_by_study = function(req, res, next) {
+	try {
+		var study = req.body.study;
+		console.log('study', study);
+		var query_str = "SELECT cardinality(markers) FROM chado.markers_and_studies_names WHERE accession = $1";
+		console.log(query_str);
+		query (query_str, [study], function (err, rows, result) {
+			if (err) {
+				console.log(err);
+				res.status(400);
+				return;
+			}
+
+			console.log(rows);
+			res.status(200).send(JSON.stringify({ cardinality: rows[0]['cardinality'] }));
+		});
+	}
+	catch (err) {
+		console.log(err);
+		res.status(400).send('Error');
+	}
+}
 
 /**
  * This should return the tree_ids that have SNP data and their user selected trees
@@ -1641,6 +2874,46 @@ exports.trees_count = function(req, res, next) {
  * @param {object} response - Response object
  * @param {function} next - Next middleware function in the application"s request-response cycle   
  */
+ exports.analysis_related_views_reload = function(req, res, next) {
+	var api_key = req.query.api_key;
+	var api_superuser_password = req.query.asup;
+
+	
+	//utils.valid_api_key(api_key, res, function() {
+	if(config.conf.api_superuser_password == api_superuser_password) {	
+		// ct_cache.clear();		
+		//var skip_to = req.query.skip_to;
+		//utils.treesnap_add("https://treesnap.org/web-services/v1/observations?page=" + page_num);
+		const defaults = {
+			shell: true
+		};
+		var child = spawn('node', ['--max-old-space-size=4096', __dirname + '/../process_analysis_related_views.js']);
+		child.on('exit', function (code, signal) {
+			ct_cache.clear();	
+		  //console.log('child process exited with ' + 'code ' + code + ' and signal ' + signal);
+		});	
+		child.stdout.on('data', (data) => {
+		  console.log("" + data + "");
+		});
+		child.stderr.on('data', (data) => {
+		  console.error("" + data + "");
+		});		
+		
+		res.status(200).json("success");
+		return;
+	}
+	else {
+		res.status(200).json("no asup was given");
+		return;
+	}
+}
+
+/**
+ * Clears the cache and refreshes the materialized views to able to view all the newly added trees to cartogratree based on tpps submissions
+ * @param {object} request - Request object
+ * @param {object} response - Response object
+ * @param {function} next - Next middleware function in the application"s request-response cycle   
+ */
 exports.trees_reload = function(req, res, next) {
 	var api_key = req.query.api_key;
 	var api_superuser_password = req.query.asup;
@@ -1689,35 +2962,35 @@ exports.trees_reload = function(req, res, next) {
 		console.log('Clear the cache');
 		ct_cache.clear();
 		//refresh all dependent views
-		query ("REFRESH MATERIALIZED VIEW chado.new_geno_view", [], function (err, rows, result) {
+		query ("REFRESH MATERIALIZED VIEW CONCURRENTLY chado.new_geno_view", [], function (err, rows, result) {
 			if (err) {
 				console.log(err);
 				res.status(400);
 				return;
 			}
 			console.log('chado.new_geno_view refresh completed');
-			query ("REFRESH MATERIALIZED VIEW chado.geno_view", [], function (err, rows, result) {
+			query ("REFRESH MATERIALIZED VIEW CONCURRENTLY chado.geno_view", [], function (err, rows, result) {
 				if (err) {
 					console.log(err);
 					res.status(400);
 					return;
 				}
 				console.log('chado.geno_view refresh completed');			
-				query ("REFRESH MATERIALIZED VIEW chado.plusgeno_view", [], function (err, rows, result) {
+				query ("REFRESH MATERIALIZED VIEW CONCURRENTLY chado.plusgeno_view", [], function (err, rows, result) {
 					if (err) {
 						console.log(err);
 						res.status(400);
 						return;
 					}
 					console.log('chado.plusgeno_view refresh completed');
-					query ("REFRESH MATERIALIZED VIEW chado.new_pheno_view", [], function (err, rows, result) {
+					query ("REFRESH MATERIALIZED VIEW CONCURRENTLY chado.new_pheno_view", [], function (err, rows, result) {
 						if (err) {
 							console.log(err);
 							res.status(400);
 							return;
 						}	
 						console.log('chado.new_pheno_view refresh completed');
-						query ("REFRESH MATERIALIZED VIEW chado.ct_view", [], function (err, rows, result) {
+						query ("REFRESH MATERIALIZED VIEW CONCURRENTLY chado.ct_view", [], function (err, rows, result) {
 							if (err) {
 								console.log(err);
 								res.status(400);
@@ -1727,28 +3000,28 @@ exports.trees_reload = function(req, res, next) {
 
 
 							console.log('Beginning refresh of ct_trees_treegenes_dryad...');
-							query ("REFRESH MATERIALIZED VIEW chado.ct_trees_treegenes_dryad", [], function (err, rows, result) {
+							query ("REFRESH MATERIALIZED VIEW CONCURRENTLY chado.ct_trees_treegenes_dryad", [], function (err, rows, result) {
 								if (err) {
 									console.log(err);
 									res.status(400);
 									return;
 								}										
 								console.log('Beginning refresh of ct_trees_all_view...');
-								query ("REFRESH MATERIALIZED VIEW ct_trees_all_view", [], function (err, rows, result) {
+								query ("REFRESH MATERIALIZED VIEW CONCURRENTLY ct_trees_all_view", [], function (err, rows, result) {
 									if (err) {
 										console.log(err);
 										res.status(400);
 										return;
 									}
 									console.log('ct_trees_all_view refresh completed');
-									query ("REFRESH MATERIALIZED VIEW ct_trees", [], function (err, rows, result) {
+									query ("REFRESH MATERIALIZED VIEW CONCURRENTLY ct_trees", [], function (err, rows, result) {
 										if (err) {
 											console.log(err);
 											res.status(400);
 											return;
 										}
 										console.log("ct_trees refresh completed");
-										query ("REFRESH MATERIALIZED VIEW chado.tpps_study_summary", [], function (err, rows, result) {
+										query ("REFRESH MATERIALIZED VIEW CONCURRENTLY chado.tpps_study_summary", [], function (err, rows, result) {
 											if (err) {
 												console.log(err);
 												res.status(400);
@@ -3301,6 +4574,7 @@ exports.publications_tree_get = function(req, res, next) {
 
 				if (response.statusCode == 200) {
 					ct_cache.put(key, body, cache_time_24);
+					console.log(JSON.parse(body).data);
 					res.status(200).json(JSON.parse(body).data);
 					return;
 				}	
@@ -3309,6 +4583,7 @@ exports.publications_tree_get = function(req, res, next) {
 			});
 		}
 		else {
+			console.log(val);
 			res.status(200).json(val);
 			return;
 		}

@@ -11,4 +11,5 @@ wfid.geo.json
 .env
 output.log
 meta_data.txt
-
+vcftools/*
+store/*.jpeg

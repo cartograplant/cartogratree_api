@@ -3,35 +3,35 @@ async function process_trees_reload() {
     // console.log('Clear the cache');
     // ct_cache.clear();
     //refresh all dependent views
-    query ("REFRESH MATERIALIZED VIEW chado.new_geno_view", [], function (err, rows, result) {
+    query ("REFRESH MATERIALIZED VIEW CONCURRENTLY chado.new_geno_view", [], function (err, rows, result) {
         if (err) {
             console.log(err);
-            res.status(400);
+            // res.status(400);
             return;
         }
         console.log('chado.new_geno_view refresh completed');
-        query ("REFRESH MATERIALIZED VIEW chado.geno_view", [], function (err, rows, result) {
+        query ("REFRESH MATERIALIZED VIEW CONCURRENTLY chado.geno_view", [], function (err, rows, result) {
             if (err) {
                 console.log(err);
                 res.status(400);
                 return;
             }
             console.log('chado.geno_view refresh completed');			
-            query ("REFRESH MATERIALIZED VIEW chado.plusgeno_view", [], function (err, rows, result) {
+            query ("REFRESH MATERIALIZED VIEW CONCURRENTLY chado.plusgeno_view", [], function (err, rows, result) {
                 if (err) {
                     console.log(err);
                     res.status(400);
                     return;
                 }
                 console.log('chado.plusgeno_view refresh completed');
-                query ("REFRESH MATERIALIZED VIEW chado.new_pheno_view", [], function (err, rows, result) {
+                query ("REFRESH MATERIALIZED VIEW CONCURRENTLY chado.new_pheno_view", [], function (err, rows, result) {
                     if (err) {
                         console.log(err);
                         res.status(400);
                         return;
                     }	
                     console.log('chado.new_pheno_view refresh completed');
-                    query ("REFRESH MATERIALIZED VIEW chado.ct_view", [], function (err, rows, result) {
+                    query ("REFRESH MATERIALIZED VIEW CONCURRENTLY chado.ct_view", [], function (err, rows, result) {
                         if (err) {
                             console.log(err);
                             res.status(400);
@@ -41,28 +41,28 @@ async function process_trees_reload() {
 
 
                         console.log('Beginning refresh of ct_trees_treegenes_dryad...');
-                        query ("REFRESH MATERIALIZED VIEW chado.ct_trees_treegenes_dryad", [], function (err, rows, result) {
+                        query ("REFRESH MATERIALIZED VIEW CONCURRENTLY chado.ct_trees_treegenes_dryad", [], function (err, rows, result) {
                             if (err) {
                                 console.log(err);
                                 res.status(400);
                                 return;
                             }										
                             console.log('Beginning refresh of ct_trees_all_view...');
-                            query ("REFRESH MATERIALIZED VIEW ct_trees_all_view", [], function (err, rows, result) {
+                            query ("REFRESH MATERIALIZED VIEW CONCURRENTLY ct_trees_all_view", [], function (err, rows, result) {
                                 if (err) {
                                     console.log(err);
                                     res.status(400);
                                     return;
                                 }
                                 console.log('ct_trees_all_view refresh completed');
-                                query ("REFRESH MATERIALIZED VIEW ct_trees", [], function (err, rows, result) {
+                                query ("REFRESH MATERIALIZED VIEW CONCURRENTLY ct_trees", [], function (err, rows, result) {
                                     if (err) {
                                         console.log(err);
                                         res.status(400);
                                         return;
                                     }
                                     console.log("ct_trees refresh completed");
-                                    query ("REFRESH MATERIALIZED VIEW chado.tpps_study_summary", [], function (err, rows, result) {
+                                    query ("REFRESH MATERIALIZED VIEW CONCURRENTLY chado.tpps_study_summary", [], function (err, rows, result) {
                                         if (err) {
                                             console.log(err);
                                             res.status(400);

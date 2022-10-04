@@ -26,93 +26,98 @@ var cors = require("cors")
 var app = express();
 var port = process.env.PORT || 8088;
 
-const screen = require('./screen');
-screen.init();
-// This reroutes the console.log function to
-// output 
-console.log = function (text, text2 = null) {
-	if(typeof text === 'object' && text != null) {
-		text = JSON.stringify(text);
+var screen_enabled = false;
+
+if(screen_enabled) {
+	const screen = require('./screen');
+	screen.init();
+	// This reroutes the console.log function to
+	// output 
+	console.log = function (text, text2 = null) {
+		if(typeof text === 'object' && text != null) {
+			text = JSON.stringify(text);
+		}
+		if(typeof text === 'object' && text2 != null) {
+			text2 = JSON.stringify(text2);
+		}
+		if(text2 == null) {
+			screen.output('box_main', '{bold}' + text + '{/bold}');
+		}
+		else {
+			screen.output('box_main', '{bold}' + text + ':' + text2 + '{/bold}');
+		}
 	}
-	if(typeof text === 'object' && text2 != null) {
-		text2 = JSON.stringify(text2);
-	}
-	if(text2 == null) {
-		screen.output('box_main', '{bold}' + text + '{/bold}');
-	}
-	else {
-		screen.output('box_main', '{bold}' + text + ':' + text2 + '{/bold}');
-	}
+
+	screen.output('box_right', 'Keys:');
+	screen.output('box_right', '1: Screen re-render');
+	screen.output('box_right', '2: Startup cache build');
+	screen.output('box_right', '3: Clear cache');
+	screen.output('box_right', '4: Refresh all CP views');
+
+	screen.screen.key(['1'], function(ch, key) {
+		console.log('Screen rerendering');
+		screen.screen.render();
+	});
+
+	screen.screen.key(['2'], function(ch, key) {
+		axios_instance.get(config.conf.main_url + '/cartogratree/api/v2/startup_cache_build?asup=' + config.conf.api_superuser_password)
+		.then(function (response) {
+		// handle success
+		console.log(response);
+		})
+		.catch(function (error) {
+		// handle error
+		console.log(error);
+		})
+		.then(function () {
+		// always executed
+		});	  
+	});
+
+	screen.screen.key(['3'], function(ch, key) {
+		axios_instance.get(config.conf.main_url + '/cartogratree/api/v2/trees/clear?asup=' + config.conf.api_superuser_password)
+		.then(function (response) {
+		// handle success
+		console.log(response);
+		})
+		.catch(function (error) {
+		// handle error
+		console.log(error);
+		})
+		.then(function () {
+		// always executed
+		});	  
+	});
+
+	screen.screen.key(['4'], function(ch, key) {
+		console.log('Performing CT VIEWS refresh');
+		axios_instance.get(config.conf.main_url + '/cartogratree/api/v2/trees/reload?asup=' + config.conf.api_superuser_password)
+		.then(function (response) {
+		// handle success
+		console.log(response);
+		})
+		.catch(function (error) {
+		// handle error
+		console.log(error);
+		})
+		.then(function () {
+		// always executed
+		});	  
+	});
+
 }
-
-screen.output('box_right', 'Keys:');
-screen.output('box_right', '1: Screen re-render');
-screen.output('box_right', '2: Startup cache build');
-screen.output('box_right', '3: Clear cache');
-screen.output('box_right', '4: Refresh all CP views');
-
-screen.screen.key(['1'], function(ch, key) {
-	console.log('Screen rerendering');
-	screen.screen.render();
-});
-
-screen.screen.key(['2'], function(ch, key) {
-	axios_instance.get(config.conf.main_url + '/cartogratree/api/v2/startup_cache_build?asup=' + config.conf.api_superuser_password)
-	.then(function (response) {
-	  // handle success
-	  console.log(response);
-	})
-	.catch(function (error) {
-	  // handle error
-	  console.log(error);
-	})
-	.then(function () {
-	  // always executed
-	});	  
-});
-
-screen.screen.key(['3'], function(ch, key) {
-	axios_instance.get(config.conf.main_url + '/cartogratree/api/v2/trees/clear?asup=' + config.conf.api_superuser_password)
-	.then(function (response) {
-	  // handle success
-	  console.log(response);
-	})
-	.catch(function (error) {
-	  // handle error
-	  console.log(error);
-	})
-	.then(function () {
-	  // always executed
-	});	  
-});
-
-screen.screen.key(['4'], function(ch, key) {
-	console.log('Performing CT VIEWS refresh');
-	axios_instance.get(config.conf.main_url + '/cartogratree/api/v2/trees/reload?asup=' + config.conf.api_superuser_password)
-	.then(function (response) {
-	  // handle success
-	  console.log(response);
-	})
-	.catch(function (error) {
-	  // handle error
-	  console.log(error);
-	})
-	.then(function () {
-	  // always executed
-	});	  
-});
-
-
 
 
 // Every 1 minute cron
 var CronJob = require('cron').CronJob;
 var job1m = new CronJob('0 */1 * * * *', function() {
   // console.log('You will see this message every second');
-  screen.clear('box_right_top')
-  const memory_used = process.memoryUsage().heapUsed / 1024 / 1024;
-  screen.output('box_right_top', '{bold}Resource Window{/bold}');
-  screen.output('box_right_top', '{bold}Memory Used:' + memory_used + ' MB{/bold}');
+  if(screen_enabled) {
+	screen.clear('box_right_top')
+	const memory_used = process.memoryUsage().heapUsed / 1024 / 1024;
+	screen.output('box_right_top', '{bold}Resource Window{/bold}');
+	screen.output('box_right_top', '{bold}Memory Used:' + memory_used + ' MB{/bold}');
+  }
 }, null, true, 'America/Los_Angeles');
 job1m.start();
 
@@ -120,9 +125,11 @@ job1m.start();
 var CronJob = require('cron').CronJob;
 var job2hr = new CronJob('0 0 */2 * * *', function() {
   // console.log('You will see this message every second');
-  const memory_used = process.memoryUsage().heapUsed / 1024 / 1024;
-  screen.clear('box_main')
-  screen.output('box_main', '{bold}Screen cleared{/bold}');
+  if(screen_enabled) {
+	const memory_used = process.memoryUsage().heapUsed / 1024 / 1024;
+	screen.clear('box_main')
+	screen.output('box_main', '{bold}Screen cleared{/bold}');
+  }
 }, null, true, 'America/Los_Angeles');
 job2hr.start();
 
@@ -203,6 +210,24 @@ var job_check_wfid_auth = new CronJob('0 23 * * * *', function() {
 }, null, true, 'America/Los_Angeles');
 job_check_wfid_auth.start();
 
+
+// This is mandatory since it affects the UI for BIEN
+setTimeout(function() {
+	console.log('Attempting to precache the BIEN trees count');
+	axios_instance.get(config.conf.main_url + '/cartogratree/api/v2/trees/count?source_id=3&filter=')
+	.then(function (response) {
+	// handle success
+	// console.log(response);
+		console.log('Tree count for BIEN precached successfully')
+	})
+	.catch(function (error) {
+		// handle error
+		console.log(error);
+	})
+	.then(function () {
+		// always executed
+	});	  
+}, 5000);
 
 if(config.conf.startup_cache_build == true) {
 	http.get('http://127.0.0.1:' + port +  '/cartogratree/api/v2/startup_cache_build?asup=' + config.conf.api_superuser_password, (resp) => {
@@ -351,7 +376,7 @@ var ctapi_wss = {
 
 			// Retrieve the layer and data property names
 			var data_properties_objects = JSON.parse(msg_parts[3]);
-			console.log(data_properties_objects);
+			console.log('data_properties_objects', data_properties_objects);
 
 			// Generate the header line
 			var header_line = "TREE_ID,LATITUDE,LONGITUDE,GENUS,SPECIES";
@@ -366,7 +391,7 @@ var ctapi_wss = {
 			for(i = 0; i < trees_arr.length; i++) {
 				// console.log(trees_arr[i]);
 				ctapi_wss.api_generate_environmental_data_for_csv_single_tree(wss, gis_url, trees_arr[i], data_properties_objects);
-				await sleep(250);
+				await sleep(150);
 			}			
 		}
 		catch (err) {
@@ -405,9 +430,11 @@ var ctapi_wss = {
 					//console.log(tree_basic_data_object);
 					// Perform lookups for each data property on geoserver
 					for(var j=0; j < data_properties_objects.length; j++) {
+						
 						var data_property_object = data_properties_objects[j];
+						console.log('data_property_object', data_property_object);
 						var output = await ctapi_wss.api_generate_environmental_data_for_csv_single_tree_async_geoserver_value(wss, gis_url, tree_basic_data_object, data_property_object);
-						//console.log("OUTPUT:" + output);
+						console.log("OUTPUT:" + output);
 						try {
 							// Try to parse the output received
 							var data_prop_query = JSON.parse(output);
@@ -420,6 +447,9 @@ var ctapi_wss = {
 									var key_name = keys[k];
 									var key_value = properties[key_name];
 									//console.log(key_name + ',' + key_value);
+
+
+
 									//console.log(k + ',' + data_property_object.property_id);
 			
 									if(k == data_property_object.property_id) {
@@ -428,6 +458,40 @@ var ctapi_wss = {
 			
 										csv_line += "," + key_value;
 			
+
+										// For storing in cartogratree_envdata_<layer_id>
+										var db_record = [
+											parseFloat(tree_basic_data_object['tree_latitude']),
+											parseFloat(tree_basic_data_object['tree_longitude']),
+											k,
+											key_name,
+											key_value
+										]
+										console.log('envdata db record data', JSON.stringify(db_record));
+										var envdata_create_table_sql = "CREATE TABLE IF NOT EXISTS public.cartogratree_envdata_" + data_property_object['layer_id'] + " (";
+										envdata_create_table_sql += "envdata_id serial NOT NULL,";
+										envdata_create_table_sql += "latitude double precision NOT NULL,";
+										envdata_create_table_sql += "longitude double precision NOT NULL,";
+										envdata_create_table_sql += "property_id integer NOT NULL,";
+										envdata_create_table_sql += "property_name varchar(1024) NOT NULL,";
+										envdata_create_table_sql += "property_value varchar(1024) NOT NULL,";
+										envdata_create_table_sql += "UNIQUE (latitude, longitude, property_id, property_name, property_value)"
+										envdata_create_table_sql += ")";
+										pg_n_client.querySync(envdata_create_table_sql);
+
+										var envdata_create_index_sql = "CREATE INDEX IF NOT EXISTS latitude_index ON public.cartogratree_envdata_" + data_property_object['layer_id'] + "(latitude)";
+										pg_n_client.querySync(envdata_create_index_sql);
+										envdata_create_index_sql = "CREATE INDEX IF NOT EXISTS longitude_index ON public.cartogratree_envdata_" + data_property_object['layer_id'] + "(longitude)";
+										pg_n_client.querySync(envdata_create_index_sql);
+										envdata_create_index_sql = "CREATE INDEX IF NOT EXISTS latlon_index ON public.cartogratree_envdata_" + data_property_object['layer_id'] + "(latitude, longitude)";
+										pg_n_client.querySync(envdata_create_index_sql);
+
+
+										var envdata_insert_sql = "INSERT INTO public.cartogratree_envdata_" + data_property_object['layer_id'] + " ";
+										envdata_insert_sql += "(latitude, longitude, property_id, property_name, property_value) ";
+										envdata_insert_sql += " VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING";
+										pg_n_client.querySync(envdata_insert_sql, [db_record[0],db_record[1],db_record[2],db_record[3],db_record[4]]);
+										
 									}
 								}
 							}
@@ -465,13 +529,15 @@ var ctapi_wss = {
 		await sleep(150);
 		await (async () => {
 			try {
-			  const response = await axios.get(gen_url);
+			  const response = await axios_instance.get(gen_url);
 			  //console.log(response);
 			  //console.log(response.data.url);
 			  //console.log(response.data.explanation);
 			  //return response.body;
 			  output = JSON.stringify(response.data);
+			  console.log(output);
 			} catch (error) {
+				console.log(error);
 			  //console.log(error.response.body);
 			  output = "error";
 			}

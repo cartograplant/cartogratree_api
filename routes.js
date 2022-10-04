@@ -35,10 +35,14 @@ module.exports = function(app) {
 
 	app.post("/cartogratree/api/v2/genotypes/snps_overlaps_by_studies_views_venn_format", tree_controller.genotypes_snps_overlaps_by_studies_views_venn_format);
 	app.post("/cartogratree/api/v2/genotypes/snps_overlaps_by_studies_views", tree_controller.genotypes_snps_overlaps_by_studies_views);
+	app.post("/cartogratree/api/v2/genotypes/snps_by_study", tree_controller.genotypes_snps_by_study);
+	app.post("/cartogratree/api/v2/genotypes/snps_count_by_study", tree_controller.genotypes_snps_count_by_study);
 	app.post("/cartogratree/api/v2/genotypes/snps_by_studies", tree_controller.genotypes_snps_by_studies);
 	app.post("/cartogratree/api/v2/genotypes/snps_by_batch", tree_controller.genotypes_snps_by_batch);
 	app.post("/cartogratree/api/v2/genotypes/ssrs_by_batch", tree_controller.genotypes_ssrs_by_batch);
 	app.post("/cartogratree/api/v2/genotypes/by_study_ids", tree_controller.genotypes_overlapping_by_study_ids);
+	app.post("/cartogratree/api/v2/genotypes/snps_get_tree_ids_by_analysis_id", tree_controller.genotypes_snps_get_tree_ids_by_analysis_id);
+	app.post("/cartogratree/api/v2/genotypes/snp_vcf_filtering", tree_controller.genotypes_snp_vcf_filtering);
 
 	app.get("/cartogratree/api/v2/fields/trees", tree_controller.trees_get_fields);
 	app.get("/cartogratree/api/v2/fields/trees/dynamic", tree_controller.trees_get_fields_dynamic);
@@ -82,7 +86,13 @@ module.exports = function(app) {
 	app.post("/cartogratree/api/v2/traits/filter_trees/by_traits", tree_controller.trees_by_trait);
 	app.post("/cartogratree/api/v2/traits/filter_trees/by_intersect_trait", tree_controller.trees_by_intersect_trait);
 
-
+	app.post("/cartogratree/api/v2/phenotypes/phenotypes_overlaps_by_studies_views", tree_controller.phenotypes_phenotypes_overlaps_by_studies_views);
+	app.post("/cartogratree/api/v2/phenotypes/phenotypes_all_by_studies_views", tree_controller.phenotypes_phenotypes_all_by_studies_views);
+	app.post("/cartogratree/api/v2/phenotypes/phenotypes_values_by_overlapping_studies", tree_controller.phenotypes_phenotypes_values_by_overlapping_studies);
+	app.post("/cartogratree/api/v2/phenotypes/phenotypes_count_by_overlapping_studies", tree_controller.phenotypes_phenotypes_count_by_overlapping_studies);
+	app.post("/cartogratree/api/v2/phenotypes/phenotypes_pca", tree_controller.phenotypes_pca);
+	
+	// phenotypes_phenotypes_all_by_studies_views
 	app.get("/cartogratree/api/v2/trees", tree_controller.trees_list);
 	app.get("/cartogratree/api/v2/trees/by_source_id", tree_controller.trees_list_by_source_id);
 	app.post("/cartogratree/api/v2/trees/q", tree_controller.trees_list_qbuilder);
@@ -116,8 +126,20 @@ module.exports = function(app) {
 
 	app.get("/cartogratree/api/v2/analysis/create", tree_controller.analysis_create_id);
 	app.get("/cartogratree/api/v2/analysis/update_analysis_name", tree_controller.analysis_update_analysis_name);
+	app.post("/cartogratree/api/v2/analysis/insert_markers_study_all", tree_controller.analysis_insert_markers_study_all);
+	app.post("/cartogratree/api/v2/analysis/delete_markers_study_all", tree_controller.analysis_delete_markers_study_all);	
 	app.post("/cartogratree/api/v2/analysis/insert_markers_studies_overlap", tree_controller.analysis_insert_markers_study_overlaps);
 	app.post("/cartogratree/api/v2/analysis/delete_markers_studies_overlap", tree_controller.analysis_delete_markers_study_overlaps);
 	app.post("/cartogratree/api/v2/analysis/insert_markers_studies_none_overlap", tree_controller.analysis_insert_markers_study_none_overlaps);
 	app.post("/cartogratree/api/v2/analysis/delete_markers_studies_none_overlap", tree_controller.analysis_delete_markers_study_none_overlaps);
+	
+	// app.get("/cartogratree/api/v2/environmental/generate_layer_values_table")
+	// Environmental Layer Data
+	app.post("/cartogratree/api/v2/environmental/get_locations_from_treeids", tree_controller.environmental_get_locations_from_treeids);
+	app.post("/cartogratree/api/v2/environmental/get_envdata_from_db_table", tree_controller.environmental_get_envdata_from_db_table);
+	app.post("/cartogratree/api/v2/environmental/environmental_scatter_plot", tree_controller.environmental_scatter_plot);
+
+	app.post("/cartogratree/api/v2/analysis/insert_data", tree_controller.analysis_insert_data);
+	app.post("/cartogratree/api/v2/analysis/delete_data", tree_controller.analysis_delete_data);
+	app.get("/cartogratree/api/v2/analysis/analysis_related_views_reload", tree_controller.analysis_related_views_reload);
 };
