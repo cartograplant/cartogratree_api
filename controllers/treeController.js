@@ -2927,20 +2927,29 @@ exports.trees_reload = function(req, res, next) {
 		const defaults = {
 			shell: true
 		};
-		var child = spawn('node', ['--max-old-space-size=4096', __dirname + '/../process_trees_reload.js']);
-		child.on('exit', function (code, signal) {
-			ct_cache.clear();	
-		  //console.log('child process exited with ' + 'code ' + code + ' and signal ' + signal);
-		});	
-		child.stdout.on('data', (data) => {
-		  console.log("" + data + "");
-		});
-		child.stderr.on('data', (data) => {
-		  console.error("" + data + "");
-		});		
 		
-		res.status(200).json("success");
-		return;
+		// Check if process_trees_reload is already running
+		var is_running = ct_cache.get('ct_api_process_trees_reload_running');
+		if(is_running != true) {
+			ct_cache.put('ct_api_process_trees_reload_running', true);
+			var child = spawn('node', ['--max-old-space-size=4096', __dirname + '/../process_trees_reload.js']);
+			child.on('exit', function (code, signal) {
+				ct_cache.clear();	
+			//console.log('child process exited with ' + 'code ' + code + ' and signal ' + signal);
+			});	
+			child.stdout.on('data', (data) => {
+			console.log("" + data + "");
+			});
+			child.stderr.on('data', (data) => {
+			console.error("" + data + "");
+			});		
+			
+			res.status(200).json("success");
+			return;
+		}
+		else {
+			console.log('process_trees_reload function is already running - will not re-execute this until it finishes.');
+		}
 	}
 	else {
 		res.status(200).json("no asup was given");
