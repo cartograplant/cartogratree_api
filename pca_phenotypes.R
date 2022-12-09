@@ -1,10 +1,11 @@
 args<-commandArgs(TRUE);
-args[1]
+args[1] 
+# Analysis ID
 args[2]
 
 #We read the table containing the phenotypes from the file
 #The CSV must have at least 3 columns (1st is the tree id, others are the phenotype data)
-csv_data<-read.csv(paste(args[1],'/',args[2],'_pca_phenotypes.csv', sep=","))
+csv_data<-read.csv(paste(args[1],'/',args[2],'_pca_phenotypes.csv', sep=""))
 #Get column count
 column_count<-ncol(csv_data)
 #Show head of the data from 1 to column count

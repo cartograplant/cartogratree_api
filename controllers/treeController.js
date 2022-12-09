@@ -330,7 +330,7 @@ var generateRandomDouble = function(min, max) {
 
 		var FormData = require('form-data');		
 		var study_vcf_processing = {};
-		console.log(req.body);
+		// console.log(req.body);
 		var vcf_info = JSON.parse(req.body.vcf_info);
 		var analysis_id = req.body.analysis_id;
 		var galaxy_id = req.body.galaxy_id;
@@ -348,6 +348,7 @@ var generateRandomDouble = function(min, max) {
 			study_vcf_processing: {},
 			upload_history_files_count: 0
 		};
+		console.log(all_vars);
 
 		for(var i=0; i<studies.length; i++) {
 			var vcf_original_location = vcf_info[studies[i]];
@@ -406,11 +407,12 @@ var generateRandomDouble = function(min, max) {
 		}
 		pg_n_client.end();
 
+		// LIKELY DEPRECATED DUE TO HOW TPPS PULLS DATA INTO THE DB NOW
 		// Go through each snp and remove the last _ part from the snp
-		for(var i=0; i < snps.length; i++) {
-			var last_index = snps[i].lastIndexOf('_');
-			snps[i] = snps[i].slice(0, last_index - 1);
-		}
+		// for(var i=0; i < snps.length; i++) {
+		// 	var last_index = snps[i].lastIndexOf('_');
+		// 	snps[i] = snps[i].slice(0, last_index - 1);
+		// }
 
 		// Now generate the snps_selected index object
 		for(var i=0; i<snps.length; i++) {
@@ -418,6 +420,8 @@ var generateRandomDouble = function(min, max) {
 				snps_selected[snps[i]] = true;
 			}
 		}
+		console.log('SNPS SELECTED');
+		console.log(snps_selected);
 		// console.log('snps', JSON.stringify(snps))
 
 		// Delete the snps array to save memory
@@ -454,6 +458,7 @@ var generateRandomDouble = function(min, max) {
 			var headers_line = "";
 			var headers_found = false;
 			var filter_column = -1;
+			var id_column = -1;
 			var lineNumber = 0;
 			
 			while (line = liner.next()) {
@@ -461,15 +466,18 @@ var generateRandomDouble = function(min, max) {
 				line_tab_parts = line.split('\t');
 				if(line.startsWith('#CHROM')) {
 					headers_line = line;
-					headers_line_parts = headers_line.split('\t');
+					var headers_line_parts = headers_line.split('\t');
 					console.log('headers_line parts', headers_line_parts);
 					filter_column = headers_line_parts.indexOf('FILTER');
+					id_column = headers_line_parts.indexOf('ID');
+					console.log('FILTER COLUMN INDEX IS:' + filter_column);
+					console.log('ID/SNP COLUMN INDEX IS:' + id_column);
 					headers_found = true;
 				}
 
 				var new_line = line;
 				if(headers_found == true) {
-					if(snps_selected[line_tab_parts[0]] == undefined) {
+					if(snps_selected[line_tab_parts[id_column]] == undefined) {
 						// alter the line to the following:
 						// replace PASS with FAIL in the FILTER COLUMN
 						// write the line to the new file
@@ -792,7 +800,252 @@ exports.genotypes_snps_get_tree_ids_by_analysis_id = function(req, res, next) {
 	}
  }
 
-  /**
+ /**
+ * This should return all phenotypes by studies specified (overlapping and none overlapping)
+ * @param {object} request - Request object
+ * @param {object} response - Response object
+ * @param {function} next - Next middleware function in the application"s request-response cycle   
+ */
+  exports.popstruct_fast_structure= function(req, res, next) {
+	try {
+		var analysis_id = req.body.analysis_id; 
+		var vcf_url = req.body.vcf_url; 
+		var results = {};
+		const axios = require('axios');
+		const https = require('https');
+		const instance = axios.create({
+			httpsAgent: new https.Agent({  
+			rejectUnauthorized: false
+			})
+		});
+		instance.get(vcf_url, {responseType: "stream"})  
+		.then(response => {
+			const exec = require('child_process').exec;
+			const execSync = require('child_process').execSync;
+			// remove all analysis_popstruct files for related analysis
+			if(analysis_id != undefined) {
+				if(analysis_id != "") {
+					var cmd_rm = "rm -f " + __dirname + "/../store/" + analysis_id + "_popstruct_*";
+					console.log('cmd', cmd_rm);
+					var child_rm = execSync(cmd_rm, function(error, stdout, stderr) {
+						console.log('Deleted ' + analysis_id + '_popstruct_* files');
+					})
+				}
+			}
+
+			// Saving file to working directory 
+			var vcf_local_location = __dirname + '/../store/' + analysis_id + '_popstruct_vcf.vcf'; 
+			// Write the file to the store directory using the WriteStream
+			var writeStream = fs.createWriteStream(vcf_local_location);
+			response.data.pipe(writeStream);
+			writeStream.on('finish', function() {
+				console.log('File finished written');
+
+				// Run the Plink step 1
+				// code = execSync('node -v');
+				var cmd_plink = __dirname + "/../plink/plink --vcf " + vcf_local_location + " --allow-extra-chr --double-id --make-bed --out "  + __dirname + "/../store/" + analysis_id + '_popstruct_plink';
+				console.log('cmd', cmd_plink);
+				var child_plink = exec(cmd_plink, function(error, stdout, stderr) {
+					
+					if(error) {
+						console.log(error);
+						results['success'] = false;
+						res.send(JSON.stringify(results));
+						return;
+					}
+
+					var cmd_fast_structure = 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib; export CFLAGS="-I/usr/local/include"; export LDFLAGS="-L/usr/local/lib";  python ' + __dirname + "/../fastStructure/structure.py -K 2 --input=" + __dirname + "/../store/" + analysis_id + '_popstruct_plink' + " --output="  + __dirname + "/../store/" + analysis_id + '_popstruct_plink --full;'; 
+					console.log(cmd_fast_structure);
+					var child_fast_structure = exec(cmd_fast_structure, function(error, stdout, stderr) {
+						console.log('Finished running fast structure');
+						if(error) {
+							console.log(error);
+							results['success'] = false;
+							res.send(JSON.stringify(results));
+							return;
+						}
+
+						var cmd_custom_cmds1 = "awk 'BEGIN { OFS = \"_\" } ;{print $1,$2}' " + __dirname + "/../store/" + analysis_id + "_popstruct_plink.fam > " + __dirname + "/../store/" + analysis_id + "_popstruct_IDPanel.txt;";
+						cmd_custom_cmds1 += "sed 's/_/\t/g' " + __dirname + "/../store/" + analysis_id + "_popstruct_IDPanel.txt > " + __dirname + "/../store/" + analysis_id + "_popstruct_IDPaneltab.txt;";
+						cmd_custom_cmds1 += "awk '{print $1,$2}' " + __dirname + "/../store/" + analysis_id + "_popstruct_IDPaneltab.txt > " + __dirname + "/../store/" + analysis_id + "_popstruct_IDfamPanel.txt;";
+						var child_custom_cmds1 = exec(cmd_custom_cmds1, function(error, stdout, stderr) {
+							console.log('Finished running custom awk and sed to generate idpanel text files');
+							if(error) {
+								console.log(error);
+								results['success'] = false;
+								res.send(JSON.stringify(results));
+								return;
+							}
+
+							// wc -l programming.txt
+							// We need to get the line count from the IDPanel.txt file
+							var cmd_custom_line_count = "wc -l " + __dirname + "/../store/" + analysis_id + "_popstruct_IDPanel.txt";
+							var child_custom_line_count = exec(cmd_custom_line_count, function(error, stdout, stderr) {
+								console.log('Finished checking line count (population count)');
+								
+								if(error) {
+									console.log(error);
+									results['success'] = false;
+									res.send(JSON.stringify(results));
+									return;
+								}	
+
+								console.log(stdout);
+								var lines = stdout.split("\n");
+								var population_count = -1;
+								for (var i=0; i<lines.length; i++) {
+									if (i==0) {
+										var line_parts = lines[i].split(" ");
+										population_count = line_parts[0];
+										break;
+									}
+								}
+								console.log('Population count', population_count);
+
+								var cmd_custom_r_code = "Rscript " + __dirname + "/../popstruct_from_panel.R ";
+								cmd_custom_r_code += analysis_id + " ";
+								cmd_custom_r_code += population_count + " ";
+								cmd_custom_r_code += __dirname + "/../store/" + analysis_id + "_popstruct_plink.2.meanQ ";
+								cmd_custom_r_code += __dirname + "/../store/" + analysis_id + "_popstruct_IDfamPanel.txt ";
+								cmd_custom_r_code += __dirname + "/../store/" + analysis_id + "_popstruct_PopPanel.txt";
+								var child_custom_r_code = exec(cmd_custom_r_code, function(error, stdout, stderr) {
+									console.log('Finished custom R code to generate PopPanel');
+									
+									if(error) {
+										console.log(error);
+										results['success'] = false;
+										res.send(JSON.stringify(results));
+										return;
+									}									
+									
+									var cmd_remove_column_code = "cut -d\\  -f2- " + __dirname + "/../store/" + analysis_id + "_popstruct_PopPanel.txt > " + __dirname + "/../store/" + analysis_id + "_popstruct_PopPanel_final.txt";
+									var child_remove_column_code = exec(cmd_remove_column_code, function(error, stdout, stderr) {
+										console.log('Finished remove column and produced PopPanel final file');
+										console.log('Location: ' + __dirname + '/../store/' + analysis_id + "_popstruct_PopPanel_final.txt");
+										
+										if(error) {
+											console.log(error);
+											results['success'] = false;
+											res.send(JSON.stringify(results));
+											return;
+										}		
+										
+										// We need to upload this file to the workflow
+										// Post the file to galaxy history / workspace
+										const FormData = require('form-data');
+										const form = new FormData();
+										try {
+											form.append('galaxy_id', req.body.galaxy_id);
+											form.append('workflow_id', req.body.workflow_id);
+											form.append('history_id', req.body.history_id);
+											form.append('raw_data', fs.readFileSync(__dirname + '/../store/' + analysis_id + '_popstruct_PopPanel_final.txt'));
+											form.append('file_name', 'AN' + analysis_id + '_POPSTRUCT_' + '_PopPanel_final.txt');
+
+											instance.post(req.body.history_upload_url, form, { headers: form.getHeaders() });
+											console.log('Uploaded history file to the workspace');
+										}
+										catch (err) {
+											console.log(err);
+										}
+
+										results['updated'] = true;
+										res.send(JSON.stringify(results));
+									});
+								});
+
+							});
+						});
+					});
+
+					
+
+
+				});				
+			});
+			
+			
+		})
+		.catch (err => {
+			console.log(err);
+			results['success'] = false;
+			res.send(JSON.stringify(results));
+			return;
+		});
+
+	}
+	catch (err) {
+		console.log(err);
+	}
+  }
+
+ /**
+ * This should return all phenotypes by studies specified (overlapping and none overlapping)
+ * @param {object} request - Request object
+ * @param {object} response - Response object
+ * @param {function} next - Next middleware function in the application"s request-response cycle   
+ */
+ exports.popstruct_dapc = function(req, res, next) {
+	var vcf_url = req.body.vcf_url;
+	var history_file_upload_url = req.body.history_file_upload_url
+	var analysis_id = req.body.analysis_id;
+
+	// This works perfectly well! 
+	const axios = require('axios'); 
+
+	axios.get(vcf_url, {responseType: "stream"} )  
+	.then(response => {  
+		// Saving file to working directory 
+		var vcf_local_location = '../store/' + analysis_id + '_popstruct_vcf.vcf';
+		response.data.pipe(fs.createWriteStream(vcf_local_location));
+		
+		const exec = require('child_process').exec;
+		// code = execSync('node -v');
+		var cmd = "Rscript " + __dirname + "/../popstruct_dapc.R " + __dirname + "/../store/ " + analysis_id;
+		console.log('cmd', cmd);
+		var child = exec(cmd, function(error, stdout, stderr) {
+			
+			if(error) {
+				console.log(error);
+				results['error'] = true;
+				res.send(JSON.stringify(results));
+				return;
+			}
+	
+			// console.log(JSON.stringify(stdout));
+			// console.log(JSON.stringify(stderr));
+	
+			try {
+				var fs = require('fs');
+				var data = fs.readFileSync(__dirname + '/../store/' + analysis_id + '_Panel1assignedPopDAPC.txt');
+				// var data_base64 = Buffer.from(data).toString('base64');
+
+				// Post the file to galaxy history / workspace
+				const FormData = require('form-data');
+				const form = new FormData();
+				form.append('my_field', 'my value');
+				form.append('my_other_field', 'my second value');
+				form.append('my_file', fs.createReadStream(__dirname + '/../store/' + analysis_id + '_Panel1assignedPopDAPC.txt'));
+
+				axios.post(history_file_upload_url, form, { headers: form.getHeaders() });
+
+				results['updated'] = true;
+	
+				exec("rm -f " + __dirname + '/../store/' + analysis_id + '_popstruct_vcf.vcf');
+				
+				// TODO upload the file back to galaxy workspace
+			}
+			catch (err_daps_gen) {
+				console.log(err_dapc_gen);
+			}
+			res.send(JSON.stringify(results));
+		});
+	})  
+	.catch(error => {  
+		console.log(error);  
+	});	
+ }
+
+/**
  * This should return all phenotypes by studies specified (overlapping and none overlapping)
  * @param {object} request - Request object
  * @param {object} response - Response object
@@ -819,6 +1072,7 @@ exports.phenotypes_pca = function(req, res, next) {
       studies = JSON.parse(req.body.studies); // should be an array
       console.log('studies', JSON.stringify(studies));
     }
+	console.log('analysis_id', analysis_id);
     var phenotypes = [];
     if(req.body.phenotypes != undefined) {
       phenotypes = JSON.parse(req.body.phenotypes); // should be an array
@@ -936,7 +1190,7 @@ exports.phenotypes_pca = function(req, res, next) {
     csv_data += "\n";
 
     // Now we have csv data - awesome
-    console.log(csv_data);
+    // console.log(csv_data);
 	var fs = require('fs');
     fs.writeFileSync(__dirname + '/../store/' + analysis_id + '_pca_phenotypes.csv', csv_data);
 
@@ -945,7 +1199,7 @@ exports.phenotypes_pca = function(req, res, next) {
     const exec = require('child_process').exec;
 	// code = execSync('node -v');
 	var cmd = "Rscript " + __dirname + "/../pca_phenotypes.R " + __dirname + "/../store/ " + analysis_id;
-	
+	console.log('cmd', cmd);
 	var child = exec(cmd, function(error, stdout, stderr) {
 		
 		if(error) {
@@ -2908,6 +3162,112 @@ exports.trees_count = function(req, res, next) {
 	}
 }
 
+
+exports.trees_in_sea_results = function(req, res, next) {
+	var api_superuser_password = req.query.asup;
+
+	
+	//utils.valid_api_key(api_key, res, function() {
+	if(config.conf.api_superuser_password == api_superuser_password) {	
+		try {
+			if (ct_cache.get('trees_in_sea_data') == undefined) {
+				if(fs.existsSync('trees_in_sea.json') == true) {
+					res.send(JSON.stringify({
+						'results': JSON.parse(fs.readFileSync('trees_in_sea.json'))
+					}));
+				}
+				res.send(JSON.stringify({
+					'results': {}
+				}));
+			}
+			else {
+				res.send(JSON.stringify({
+					'results': JSON.parse(ct_cache.get('trees_in_sea_data'))
+				}));		
+			}
+		}
+		catch (err) {
+			res.send(err);
+		}
+	}
+	else {
+		res.status(200).json("no asup was given");
+		return;		
+	}
+}
+
+/**
+ * This function will go through source_id = 0 and source_id = 2 ct_trees_all_view
+ * and use the is sea function to detect whether the tree is in the sea or not
+ * It stores the results in both cache and also a file
+ * @param {*} req 
+ * @param {*} res 
+ * @param {*} next 
+ * @returns 
+ */
+
+exports.check_trees_in_sea = function(req, res, next) {
+	
+	var api_key = req.query.api_key;
+	var api_superuser_password = req.query.asup;
+
+	
+	//utils.valid_api_key(api_key, res, function() {
+	if(config.conf.api_superuser_password == api_superuser_password) {	
+		try {
+			const defaults = {
+				shell: true
+			};
+			
+			// Check if process_check_Trees_in_sea is already running
+			var is_running = ct_cache.get('ct_api_process_check_trees_in_sea');
+			var output = "";
+			if(is_running != true) {
+				console.log('running ct_api_process_check_Trees_in_sea');
+				ct_cache.put('ct_api_process_check_trees_in_sea', true);
+				var child = spawn('node', ['--max-old-space-size=4096', __dirname + '/../process_check_trees_in_sea.js']);
+				child.on('exit', function (code, signal) {
+					//ct_cache.clear();	
+					ct_cache.put('ct_api_process_check_trees_in_sea', false);
+					console.log('Check Trees In Sea process has completed check.');
+					console.log('child process exited with ' + 'code ' + code + ' and signal ' + signal);
+					ct_cache.put('trees_in_sea_data', output);
+					try {
+						var fs = require('fs');
+						fs.writeFileSync('trees_in_sea.json', output);
+					}
+					catch (err) {
+						console.log(err);
+					}
+					// console.log('trees_in_sea', JSON.parse(output));
+
+				});	
+				
+				child.stdout.on('data', (data) => {
+					console.log("" + data + "");
+					output += "" + data + "" ;
+				});
+				child.stderr.on('data', (data) => {
+					console.error("" + data + "");
+				});		
+				
+				res.status(200).json("success");
+				return;
+			}
+			else {
+				console.log('process_check_trees_in_sea function is already running - will not re-execute this until it finishes.');
+			}
+		}
+		catch (err) {
+			console.log(err);
+		}
+	}
+	else {
+		res.status(200).json("no asup was given");
+		return;
+	}
+}
+
 /**
  * Clears the cache and refreshes the materialized views to able to view all the newly added trees to cartogratree based on tpps submissions
  * @param {object} request - Request object
@@ -4742,13 +5102,13 @@ exports.total_trees = function(req, res, next) {
 }
 
 function build_tree_query_str(query_conditions, sources) {	
-	var query_str = "SELECT DISTINCT ON(uniquename) * FROM ct_trees_all_view WHERE";
+	var query_str = "SELECT DISTINCT ON(uniquename) * FROM public.ct_trees_all_view_population_testing WHERE";
 	//var query_str = "SELECT * FROM ct_trees_all_view WHERE";
 	if (query_conditions.length > 0) {
 		query_str = query_str + " " + query_conditions + " AND (";
 	}
 	else {
-		query_str = "SELECT DISTINCT ON(uniquename) * FROM ct_trees_all_view WHERE (";
+		query_str = "SELECT DISTINCT ON(uniquename) * FROM public.ct_trees_all_view_population_testing WHERE (";
 	}
 
 	for (var s = 0; s < sources.length; s++) {
@@ -5090,7 +5450,45 @@ function wfid_consolidate_metadata_function() {
    }	
 };
 
-
+/**
+ * Returns all the trees that are currently present in the db
+ * @param {object} request - Request object
+ * @param {object} response - Response object
+ * @param {function} next - Next middleware function in the application"s request-response cycle
+ */
+ exports.popstruct_trees_list = function(req, res, next) {
+	var study_accession = req.query.study_accession;
+	var cached_trees = ct_cache.get("popstruct_trees_list_" + study_accession);
+	var study_number = parseInt(study_accession.replace('TGDR', ''));
+	
+	console.log(study_accession);
+   if(cached_trees == null) {
+	   var args = [study_accession];
+	   query ("SELECT * FROM public.ct_trees_all_view_population_testing WHERE study_accession = $1 AND population IS NOT NULL;", args, function(err, rows, result) {
+		   if (err) {
+			   console.log(err);
+			   res.status(400);
+			   return;
+		   }
+		   var treeFeatures = [];
+		   for (var i = 0; i < rows.length; i++) {
+			   // var population_icon_id = study_number + '-' + rows[i]["population"];
+			   var population_icon_id = rows[i]["population"];
+			   var currTree = {"type": "Feature"};
+			   currTree["properties"] = {"id": rows[i]["uniquename"], "icon_type": rows[i]["icon_type"], "population_icon_id": population_icon_id};
+			   currTree["geometry"] = {"type": "Point", "coordinates": [rows[i]["longitude"], rows[i]["latitude"]]};
+			   treeFeatures.push(currTree);
+		   }
+		   ct_cache.put("popstruct_trees_list_" + study_accession, treeFeatures, cache_time_24);
+		   res.status(200).json(treeFeatures);
+		   return;
+	   });
+   }
+   else {
+	   res.status(200).json(cached_trees);
+	   return;
+   }	
+};
 
 /**
  * Returns all the trees that are currently present in the db based on source_id

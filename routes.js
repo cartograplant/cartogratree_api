@@ -66,6 +66,8 @@ module.exports = function(app) {
 	app.get("/cartogratree/api/v2/trees/reload", tree_controller.trees_reload);
 	app.get("/cartogratree/api/v2/trees/reload_status", tree_controller.trees_reload_status);
 	app.get("/cartogratree/api/v2/trees/clear", tree_controller.cache_clear);
+	app.get("/cartogratree/api/v2/trees/check_trees_in_sea", tree_controller.check_trees_in_sea);
+	app.get("/cartogratree/api/v2/trees/results_trees_in_sea", tree_controller.trees_in_sea_results);
 	app.get("/cartogratree/api/v2/trees/treesnap/consolidate_subkingdoms", tree_controller.treesnap_consolidate_subkingdoms);	
 	app.get("/cartogratree/api/v2/trees/treesnap/consolidate_families", tree_controller.treesnap_consolidate_families);
 	app.get("/cartogratree/api/v2/trees/treesnap/reload", tree_controller.reload_treesnap);
@@ -109,6 +111,8 @@ module.exports = function(app) {
 	app.get("/cartogratree/api/v2/trees/wfid", tree_controller.wfid_trees_list);
 	app.get("/cartogratree/api/v2/trees/wfid_consolidate_metadata", tree_controller.wfid_consolidate_metadata);
 
+	app.get("/cartogratree/api/v2/trees/popstruct", tree_controller.popstruct_trees_list);
+
 	app.get("/cartogratree/api/v2/stats/unq/species", tree_controller.total_unique_species);
 	app.get("/cartogratree/api/v2/stats/num/species", tree_controller.total_species);
 	app.get("/cartogratree/api/v2/stats/num/pub", tree_controller.total_publications);
@@ -138,6 +142,10 @@ module.exports = function(app) {
 	app.post("/cartogratree/api/v2/environmental/get_locations_from_treeids", tree_controller.environmental_get_locations_from_treeids);
 	app.post("/cartogratree/api/v2/environmental/get_envdata_from_db_table", tree_controller.environmental_get_envdata_from_db_table);
 	app.post("/cartogratree/api/v2/environmental/environmental_scatter_plot", tree_controller.environmental_scatter_plot);
+
+	// PopStruct related routes
+	app.post("/cartogratree/api/v2/popstruct/fast_structure", tree_controller.popstruct_fast_structure);
+	app.post("/cartogratree/api/v2/popstruct/dapc", tree_controller.popstruct_dapc);
 
 	app.post("/cartogratree/api/v2/analysis/insert_data", tree_controller.analysis_insert_data);
 	app.post("/cartogratree/api/v2/analysis/delete_data", tree_controller.analysis_delete_data);
