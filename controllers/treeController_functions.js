@@ -36,36 +36,60 @@ exports.load_species_corrections_from_csv_function = function() {
  */
  exports.wfid_oauth_token_request_function = function(config,request,db_storage) {
    try {
-     var url = config.conf_wfid.host + '/oauth/token';
-     console.log('oauth/token url', url);
-     request.post(
-       {
-         url: url,
-         json: {
-           grant_type:'password',
-           client_id:config.conf_wfid.client_id,
-           client_secret: config.conf_wfid.client_secret,
-           username: config.conf_wfid.username,
-           password: config.conf_wfid.password,
-           scope: ''
-         },
-         headers: {
-             'Content-Type': 'application/json'
-         }
-       },
-       function(error, response, body){
-         // console.log(error);
-         // console.log(response);
-         // console.log(body);
- 
-         var unix_time = Math.floor(Date.now() / 1000); // save the unix time when this token was generated
-         body.time_generated = unix_time;
- 
-         db_storage.set('wfid_oauth_object', body);
-         console.log('New WFID oauth object has been retrieved and saved!');
-         
-       }
-     );    
+    var url = config.conf_wfid.host + '/oauth/token';
+    console.log('oauth/token url', url);
+    var axios = require('axios').default;
+    axios.post(url, {
+      grant_type:'password',
+      client_id:config.conf_wfid.client_id,
+      client_secret: config.conf_wfid.client_secret,
+      username: config.conf_wfid.username,
+      password: config.conf_wfid.password,
+      scope: ''
+    }, {
+      headers: {
+          'Content-Type': 'application/json'
+      }
+		}).then(function (response) {
+      console.log('response', response);
+      console.log('response.data', response.data);
+      var unix_time = Math.floor(Date.now() / 1000); // save the unix time when this token was generated
+      body.time_generated = unix_time;
+
+      db_storage.set('wfid_oauth_object', response.data);
+      console.log('New WFID oauth object has been retrieved and saved!');
+    }).catch(function (err) {
+      console.log(err);
+    });
+     // DEPRECATED
+      //  request.post(
+      //    {
+      //      url: url,
+      //      json: {
+      //        grant_type:'password',
+      //        client_id:config.conf_wfid.client_id,
+      //        client_secret: config.conf_wfid.client_secret,
+      //        username: config.conf_wfid.username,
+      //        password: config.conf_wfid.password,
+      //        scope: ''
+      //      },
+      //      headers: {
+      //          'Content-Type': 'application/json'
+      //      }
+      //    },
+      //    function(error, response, body){
+      //      // console.log(error);
+      //      // console.log(response);
+      //      // console.log(body);
+  
+      //      var unix_time = Math.floor(Date.now() / 1000); // save the unix time when this token was generated
+      //      body.time_generated = unix_time;
+  
+      //      db_storage.set('wfid_oauth_object', body);
+      //      console.log('New WFID oauth object has been retrieved and saved!');
+          
+      //    }
+      //  );    
    }
    catch (err) {
      console.log(err);

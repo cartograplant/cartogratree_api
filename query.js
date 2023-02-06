@@ -1,6 +1,10 @@
 'use strict';
 const config = require('./config');
-const pg = new require('pg').Pool(config.conf);
+// The below code was used for node Version 8
+// const pg = new require('pg').Pool(config.conf);
+// This code works for node version 16
+const { Pool } = require('pg');
+const pg = new Pool(config.conf);
 
 module.exports = function(queryText, queryValues, callback) {
   pg.connect(function(db_error, client, release) {

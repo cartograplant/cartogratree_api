@@ -13,3 +13,5 @@ output.log
 meta_data.txt
 vcftools/*
 store/*.jpeg
+node_modules/*
+crash_report.txt

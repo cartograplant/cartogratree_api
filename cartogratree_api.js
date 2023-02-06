@@ -1,5 +1,6 @@
 const config = require('./config');
 var express = require("express");
+var global = {};
 var responseTime = require("response-time");
 var bodyParser = require("body-parser");
 const http = require('http');
@@ -27,6 +28,21 @@ var app = express();
 var port = process.env.PORT || 8088;
 
 var screen_enabled = false;
+
+
+var ON_DEATH = require('death'); //this is intentionally ugly
+ 
+ON_DEATH(function(signal, err) {
+  //clean up code here
+  console.log('signal', signal);
+  console.log('error', err);
+
+  fs.appendFile(__dirname + '/crash_report.txt', err, function (err) {
+	if (err) throw err;
+	console.log('Crash Report saved!');
+	process.exit();
+  });
+});
 
 if(screen_enabled) {
 	const screen = require('./screen');
@@ -159,10 +175,34 @@ app.use(bodyParser.json());
 
 app.set("json spaces", 0);
 
-var routes = require("./routes");	// import routes
-routes(app);						// register routes
 
-app.listen(port, "0.0.0.0");
+
+
+const server = require('http').createServer(app);
+const io = require('socket.io')(server, {
+	path: '/cartogratree/api/realtime'
+});
+global['io'] = io;
+
+io.on('connection', async (client) => { 
+	console.log('Realtime connection created');
+	console.log('Client ID:' + client.id);
+	io.to(client.id).emit('client_id',{client_id:client.id});
+	io.to(client.id).emit('version',{message:'CartograPlant realtime system v1.0'});
+	client.onAny(function(event,data) {
+		console.log(event);
+		console.log(data);
+	});
+});
+
+var routes = require("./routes");	// import routes
+routes(app, global);// register routes
+
+server.listen(port);
+
+
+// Without socket io, use the following to listen for http requests
+// app.listen(port, "0.0.0.0");
 
 app.use(function(req, res, next) {
 	next(createError(404));
@@ -183,32 +223,37 @@ treeController_fuctions.load_species_corrections_from_csv_function();
 // Add a cron job
 var job_check_wfid_auth = new CronJob('0 23 * * * *', function() {
 	try{
-		console.log('Checking WFID auth...');
-
-		// Attempt to get the wfid auth info in treecontroll db_storage
-		const db_storage = new JSONdb(__dirname + '/storage.json', {asyncWrite: true, syncOnWrite: true});
-		var oauth_object = db_storage.get('wfid_oauth_object');
-		if(oauth_object == undefined) {
-			// force request for new oauth access_token since none exists
-			treeController_fuctions.wfid_oauth_token_request_function(config,request,db_storage);
-		}
-		else {
-			var current_unix_time = Math.floor(Date.now() / 1000);
-			var grace_period = 7 * 24 * 60  * 60; // 7 days before expiry, get new key
-			if((current_unix_time + grace_period) > (oauth_object.expires_in + oauth_object.generated_time)) {
-				// expired so request a new one
-				treeController_fuctions.wfid_oauth_token_request_function(config,request,db_storage);
-			}
-			else {
-				// No need to update / request a new token
-			}
-		}
+		wfid_auth();
 	}
 	catch (err) {
 		console.log(err);
 	}
 }, null, true, 'America/Los_Angeles');
 job_check_wfid_auth.start();
+wfid_auth();
+
+function wfid_auth() {
+	console.log('Checking WFID auth...');
+	// Attempt to get the wfid auth info in treecontroll db_storage
+	const db_storage = new JSONdb(__dirname + '/storage.json', {asyncWrite: true, syncOnWrite: true});
+	var oauth_object = db_storage.get('wfid_oauth_object');
+	if(oauth_object == undefined) {
+		// force request for new oauth access_token since none exists
+		treeController_fuctions.wfid_oauth_token_request_function(config,request,db_storage);
+	}
+	else {
+		var current_unix_time = Math.floor(Date.now() / 1000);
+		var grace_period = 7 * 24 * 60  * 60; // 7 days before expiry, get new key
+		if((current_unix_time + grace_period) > (oauth_object.expires_in + oauth_object.generated_time)) {
+			// expired so request a new one
+			treeController_fuctions.wfid_oauth_token_request_function(config,request,db_storage);
+		}
+		else {
+			console.log('No need to update/request a new token from WFID');
+			// No need to update / request a new token
+		}
+	}
+}
 
 
 // This is mandatory since it affects the UI for BIEN

@@ -1,5 +1,8 @@
 "use strict";
-module.exports = function(app) {
+module.exports = function(app, global) {
+	try {
+		global.io.emit('test', {test:'test'});
+	} catch (err) { console.log(err) }
 	// This is middleware for routes that use POST
 	const bodyParser = require("body-parser");
 	app.use(bodyParser.urlencoded({limit: '50mb', extended: false }));
@@ -8,6 +11,7 @@ module.exports = function(app) {
 
 	//old API deprecated functions
 	var old_controller = require("./controllers/oldController");
+	
 
 	app.get("/cartogratree/api/v1.0/trees/markers/snps", old_controller.trees_snps);
 	app.get("/cartogratree/api/v1.0/trees/markers/snps/all", old_controller.snps_all);
@@ -15,6 +19,7 @@ module.exports = function(app) {
 	
 	//API V2 new end points and controllers
 	var tree_controller = require("./controllers/treeController");
+	tree_controller.set_global(global);
 	var user_controller = require("./controllers/userController");  
 
 	app.get("/cartogratree/api/v2/wfid/oauth_request", tree_controller.wfid_oauth_token_request);
@@ -139,6 +144,7 @@ module.exports = function(app) {
 	
 	// app.get("/cartogratree/api/v2/environmental/generate_layer_values_table")
 	// Environmental Layer Data
+	app.post("/cartogratree/api/v2/environmental/get_unique_locations_from_treeids", tree_controller.environmental_get_unique_locations_from_treeids);
 	app.post("/cartogratree/api/v2/environmental/get_locations_from_treeids", tree_controller.environmental_get_locations_from_treeids);
 	app.post("/cartogratree/api/v2/environmental/get_envdata_from_db_table", tree_controller.environmental_get_envdata_from_db_table);
 	app.post("/cartogratree/api/v2/environmental/environmental_scatter_plot", tree_controller.environmental_scatter_plot);
@@ -146,6 +152,7 @@ module.exports = function(app) {
 	// PopStruct related routes
 	app.post("/cartogratree/api/v2/popstruct/fast_structure", tree_controller.popstruct_fast_structure);
 	app.post("/cartogratree/api/v2/popstruct/dapc", tree_controller.popstruct_dapc);
+	app.get("/cartogratree/api/v2/popstruct/reload", tree_controller.popstruct_reload);
 
 	app.post("/cartogratree/api/v2/analysis/insert_data", tree_controller.analysis_insert_data);
 	app.post("/cartogratree/api/v2/analysis/delete_data", tree_controller.analysis_delete_data);

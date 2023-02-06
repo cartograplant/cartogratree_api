@@ -1,6 +1,9 @@
 'use strict';
 const config = require('./config');
-const pg_bienv4 = new require('pg').Pool(config.conf_bienv4);
+// Old code for node v 8
+// const pg_bienv4 = new require('pg').Pool(config.conf_bienv4);
+const { Pool } = require('pg');
+const pg_bienv4 = new Pool(config.conf_bienv4);
 
 module.exports = async function(queryText, queryValues, callback) {
   pg_bienv4.connect(function(db_error, client, release) {

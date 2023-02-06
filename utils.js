@@ -26,52 +26,101 @@ var treesnap_api_terms = [];
 var treesnap_otherlabel_values = [];
 
 function treesnap_add_get_terms_only(base_url) {
-	console.log('Attempting to pull treesnap data from:' + base_url);
-	const treesnap_max = 100;	
-	var options = {
-		uri: base_url + "&per_page=" + treesnap_max, 
-		method: "GET",
-		headers: {
-			"Authorization": "Bearer " + process.env.TREESNAP_BEARER,
-			"Accept": "application/json",
-		},
+	try {
+		console.log('Attempting to pull treesnap data for terms from:' + base_url);
+		const treesnap_max = 100;	
+		var options = {
+			uri: base_url + "&per_page=" + treesnap_max, 
+			method: "GET",
+			headers: {
+				"Authorization": "Bearer " + process.env.TREESNAP_BEARER,
+				"Accept": "application/json",
+			},
+		}
+
+		treesnap_api_terms = [];
+		treesnap_otherlabel_values = [];
+
+		var axios = require('axios');
+		var https = require('https');
+	
+		const axios_instance = axios.create({
+			httpsAgent: new https.Agent({  
+			  rejectUnauthorized: false
+			})
+		});
+
+		try {
+			axios_instance({
+				method: 'get',
+				url: base_url + "&per_page=" + treesnap_max,
+				headers: {
+					"Authorization": "Bearer " + process.env.TREESNAP_BEARER,
+					"Accept": "application/json",
+				}
+			}).then(function(response) {
+				try {
+					var data = response.data;
+					// console.log('data', data);
+					treesnap_terms_tree_total = treesnap_terms_tree_total + data.data.length;
+					for (var i = 0; i < data.data.length; i++) {
+						treesnap_terms_tree_current = treesnap_terms_tree_current + 1;
+						var tree_data = data.data[i];
+						
+						
+						treesnap_add_row_get_terms_only(tree_data,treesnap_terms_tree_current, data.next_page_url);
+					}
+					//console.log(data.next_page_url);
+					if (data.next_page_url != null) {
+						treesnap_add_get_terms_only(data.next_page_url);
+					}
+				}
+				catch (err) {
+					console.log(err);
+				}
+			}).catch(function (err) {
+				console.log(err);
+			})
+		}
+		catch (err) {
+			console.log(err);
+		}
+
+		// DEPRECATED CODE
+		// var req_result = request(options, function(error, response, body) {
+		// 	if (error) {
+		// 		console.log(error);
+		// 		// response.status(400);
+		// 		return;
+		// 	}
+
+		// 	if (response.statusCode == 200) {
+		// 		//console.log(JSON.parse(body).data);
+		// 		var data = JSON.parse(body).data;
+		// 		treesnap_terms_tree_total = treesnap_terms_tree_total + data.data.length;
+		// 		for (var i = 0; i < data.data.length; i++) {
+		// 			treesnap_terms_tree_current = treesnap_terms_tree_current + 1;
+		// 			var tree_data = data.data[i];
+					
+					
+		// 			treesnap_add_row_get_terms_only(tree_data,treesnap_terms_tree_current, data.next_page_url);
+		// 		}
+		// 		//console.log(data.next_page_url);
+		// 		if (data.next_page_url != null) {
+					
+		// 			treesnap_add_get_terms_only(data.next_page_url);
+					
+		// 		}
+		// 	}
+		// 	else {
+		// 		console.log('ERROR Response code from the API was:' + response.statusCode);
+		// 	}
+		// });
+		return;
 	}
-
-	treesnap_api_terms = [];
-	treesnap_otherlabel_values = [];
-
-	var req_result = request(options, function(error, response, body) {
-		if (error) {
-			console.log(error);
-			res.status(400);
-			return;
-		}
-
-		if (response.statusCode == 200) {
-			//console.log(JSON.parse(body).data);
-			var data = JSON.parse(body).data;
-			treesnap_terms_tree_total = treesnap_terms_tree_total + data.data.length;
-			for (var i = 0; i < data.data.length; i++) {
-				treesnap_terms_tree_current = treesnap_terms_tree_current + 1;
-				var tree_data = data.data[i];
-				
-				
-				treesnap_add_row_get_terms_only(tree_data,treesnap_terms_tree_current, data.next_page_url);
-				
-				
-			}
-			//console.log(data.next_page_url);
-			if (data.next_page_url != null) {
-				
-				treesnap_add_get_terms_only(data.next_page_url);
-				
-			}
-		}
-		else {
-			console.log('ERROR Response code from the API was:' + response.statusCode);
-		}
-	});
-	return;
+	catch (err) {
+		console.log(err);
+	}
 }
 
 function treesnap_add_row_get_terms_only(tree_data, treesnap_terms_tree_current, hasNextPage) {
@@ -180,71 +229,117 @@ function sleep(ms) {
 
 
 function treesnap_add(base_url) {
-	console.log('Attempting to pull treesnap data from:' + base_url);
-	const treesnap_max = 100;	
-	var options = {
-		uri: base_url + "&per_page=" + treesnap_max, 
-		method: "GET",
-		headers: {
-			"Authorization": "Bearer " + process.env.TREESNAP_BEARER,
-			"Accept": "application/json",
-		},
+	try {
+		console.log('Attempting to pull treesnap data from:' + base_url);
+		const treesnap_max = 100;	
+		var options = {
+			uri: base_url + "&per_page=" + treesnap_max, 
+			method: "GET",
+			headers: {
+				"Authorization": "Bearer " + process.env.TREESNAP_BEARER,
+				"Accept": "application/json",
+			},
+		}
+
+		var axios = require('axios');
+		var https = require('https');
+	
+		const axios_instance = axios.create({
+			httpsAgent: new https.Agent({  
+			  rejectUnauthorized: false
+			})
+		});
+
+		try {
+			axios_instance({
+				method: 'get',
+				url: base_url + "&per_page=" + treesnap_max,
+				headers: {
+					"Authorization": "Bearer " + process.env.TREESNAP_BEARER,
+					"Accept": "application/json",
+				}
+			}).then(function(response) {
+				try {
+					var data = response.data;
+					// console.log('data', data);
+					for (var i = 0; i < data.data.length; i++) {
+						var tree_data = data.data[i];
+						treesnap_add_row(tree_data);
+					}
+					if (data.next_page_url != null) {
+						treesnap_add(data.next_page_url);
+					}					
+				}
+				catch (err) {
+					console.log(err);
+				}
+			}).catch(function (err) {
+				console.log(err);
+			});
+		}
+		catch (err) {
+			console.log(err);
+		}
+
+		// var req_result = request(options, function(error, response, body) {
+		// 	if (error) {
+		// 		console.log(error);
+		// 		//res.status(400);
+		// 		return;
+		// 	}
+
+		// 	if (response.statusCode == 200) {
+		// 		//console.log(JSON.parse(body).data);
+		// 		var data = JSON.parse(body).data;
+		// 		for (var i = 0; i < data.data.length; i++) {
+
+		// 			var tree_data = data.data[i];
+		// 			treesnap_add_row(tree_data);
+					
+		// 			/*
+		// 			if (tree_data["species"] != "Unknown" && tree_data["genus"] != "Unknown") {
+
+		// 				pool.query("INSERT INTO ct_trees_treesnap (uniquename, species, genus, family, subkingdom, latitude, longitude, source_id, icon_type) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT(uniquename) DO NOTHING",
+		// 					["treesnap." + tree_data["id"], tree_data["genus"] + " " + tree_data["species"], tree_data["genus"], null, null, tree_data["latitude"], tree_data["longitude"], 1, 4],
+		// 					function (err, result) {
+		// 						if (err) {
+		// 							console.log(err);
+		// 							return;
+		// 						}
+								
+		// 						//console.log(tree_data['meta_data']);
+								
+		// 						if(tree_data['meta_data'].diameterNumeric_values != undefined) {
+		// 							pool.query("INSERT INTO public.ct_trees_phenotypes_treesnap (tree_acc,phenotype_name,value,units) VALUES ($1,$2,$3,$4)",
+		// 								["treesnap." + tree_data["id"], "diameter", tree_data['meta_data'].diameterNumeric_values.US_value, tree_data['meta_data'].diameterNumeric_values.US_unit], function(err, result) {
+		// 								if(err) {
+		// 									console.log(err);
+		// 									return;
+		// 								}
+		// 								//nothing to do
+		// 							});
+		// 						}
+								
+		// 					}
+		// 				);
+		// 			}
+		// 			*/
+		// 		}
+		// 		//console.log(data.next_page_url);
+		// 		if (data.next_page_url != null) {
+		// 			treesnap_add(data.next_page_url);
+		// 		}
+		// 	}
+		// 	else {
+		// 		console.log('ERROR Response code from the API was:' + response.statusCode);
+		// 	}
+		// });
+		return;
+	}
+	catch (err) {
+		console.log(err);
 	}
 
-	var req_result = request(options, function(error, response, body) {
-		if (error) {
-			console.log(error);
-			//res.status(400);
-			return;
-		}
-
-		if (response.statusCode == 200) {
-			//console.log(JSON.parse(body).data);
-			var data = JSON.parse(body).data;
-			for (var i = 0; i < data.data.length; i++) {
-
-				var tree_data = data.data[i];
-				treesnap_add_row(tree_data);
-				
-				/*
-				if (tree_data["species"] != "Unknown" && tree_data["genus"] != "Unknown") {
-
-					pool.query("INSERT INTO ct_trees_treesnap (uniquename, species, genus, family, subkingdom, latitude, longitude, source_id, icon_type) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT(uniquename) DO NOTHING",
-						["treesnap." + tree_data["id"], tree_data["genus"] + " " + tree_data["species"], tree_data["genus"], null, null, tree_data["latitude"], tree_data["longitude"], 1, 4],
-						function (err, result) {
-							if (err) {
-								console.log(err);
-								return;
-							}
-							
-							//console.log(tree_data['meta_data']);
-							
-							if(tree_data['meta_data'].diameterNumeric_values != undefined) {
-								pool.query("INSERT INTO public.ct_trees_phenotypes_treesnap (tree_acc,phenotype_name,value,units) VALUES ($1,$2,$3,$4)",
-									["treesnap." + tree_data["id"], "diameter", tree_data['meta_data'].diameterNumeric_values.US_value, tree_data['meta_data'].diameterNumeric_values.US_unit], function(err, result) {
-									if(err) {
-										console.log(err);
-										return;
-									}
-									//nothing to do
-								});
-							}
-							
-						}
-					);
-				}
-				*/
-			}
-			//console.log(data.next_page_url);
-			if (data.next_page_url != null) {
-				treesnap_add(data.next_page_url);
-			}
-		}
-		else {
-			console.log('ERROR Response code from the API was:' + response.statusCode);
-		}
-	});
-	return;
 }
 
 function treesnap_add_row(tree_data) {
@@ -713,9 +808,12 @@ function valid_api_key(key, response, callback) {
 
 function encrypt(string) {
 	try {
-		var cipher = crypto.createCipher("aes-256-cbc", process.env.TOKEN_PW);
+		// var cipher = crypto.createCipher("aes-256-cbc", process.env.TOKEN_PW);
+		const IV = "5183666c72eec9e4"; // set random initialisation vector
+		let cipher = crypto.createCipheriv('aes-256-cbc', process.env.TOKEN_PW, IV);
 		var encrypted = cipher.update(string, "utf8", "base64");
 		encrypted += cipher.final("base64");
+		console.log('encrypted', encrypted);
 		return encrypted;
 	} 
 	catch (exception) {
@@ -725,9 +823,12 @@ function encrypt(string) {
 	
 function decrypt(string) {
 	try {
-		var decipher = crypto.createDecipher("aes-256-cbc", process.env.TOKEN_PW);
+		// var decipher = crypto.createDecipher("aes-256-cbc", process.env.TOKEN_PW);
+		const IV = "5183666c72eec9e4"; // set random initialisation vector
+		let decipher = crypto.createDecipheriv('aes-256-cbc', process.env.TOKEN_PW, IV);
 		var decrypted = decipher.update(string, "base64", "utf8");
 		decrypted += decipher.final("utf8");
+		console.log('decrypted', decrypted);
 		return decrypted;
 	} 
 	catch (exception) {

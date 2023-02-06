@@ -15,7 +15,9 @@ function generate_api_key(res, hashed_id, user_id, rewrite=false) {
 		}
 			
 		var key = "ct-" + hashed_id + "-" + buf.toString("hex");
+		console.log('key', key);
 		var encrypted_key = utils.encrypt(key).toString("hex");
+		console.log('encrypted_key', encrypted_key);
 		var date_time = utils.generate_date_time();
 		
 		if (rewrite) {
@@ -61,6 +63,7 @@ exports.get_api_key = function(req, res, next) {
 					if (!new_key) {
 						var encrypted_key = rows[0]["api_key"];
 						var decrypted_key = utils.decrypt(encrypted_key);
+						console.log('decrypted_key', decrypted_key);
 						res.status(200).json(decrypted_key);
 						return;
 					}

@@ -21,6 +21,11 @@ const treeController_functions = require('./treeController_functions');
 exports.db_storage = db_storage;
 
 require("tls").DEFAULT_ECDH_CURVE = "auto";
+var global = null;
+
+exports.set_global = function (global_obj) {
+	global = global_obj;
+}
 
 /**
  * This gets called when the WFID website creates, changes or deletes an observation on their side
@@ -176,7 +181,7 @@ exports.wfid_oauth_token_request = function(req, res, next) {
 		console.log(req.query);
 
 		var oauth_object = db_storage.get('wfid_oauth_object');
-		console.log(oauth_object);
+		console.log('oauth_object', oauth_object);
 		if(oauth_object != undefined) {
 			var url = config.conf_wfid.host + '/api/v1/third-party/observations';
 			console.log('observations url', url);
@@ -190,97 +195,197 @@ exports.wfid_oauth_token_request = function(req, res, next) {
 	}
   }
   catch (err) {
-    console.log(err);
+    console.log('wfid_import_observations_all error:', err);
   }
 }
 
 async function wfid_import_observations_page(url, oauth_object) {
 	await sleep(2500);
-    request.get(
-		{
-		  url: url,
-		  json: {},
-		  headers: {
-			  'User-Agent': 'my request',
-			  'Authorization': 'Bearer ' + oauth_object.access_token,
-			  'Content-Type': 'application/json',
-			  'Accept': 'application/json'
-		  }
-		},
-		function(error, response, body){
-		  // console.log(error);
-		  // console.log(response);
-		  // console.log(body);
-		  console.log(body.next_page_url);
-		  for(var i=0; i < body.data.length; i++) {
-			  try {
-				var observation_object = body.data[i];
-				var fuzzy_coordinates = fuzifyCoorinates(observation_object.location.latitude, observation_object.location.longitude);
-				var current_species = observation_object.species[0].latin_name;
-				var current_genus = observation_object.species[0].latin_name.split(' ')[0];
-				var species_parts = current_species.split(' ');
-				// console.log(species_parts);
-				// species_parts must contain at least 2 pieces (genus + species) to be valid
-				if(species_parts.length >= 2) {
-					if(species_parts[1] != '') {
-						var row = {
-							uniquename : 'WFID-' + observation_object.id,
-							genus : current_genus,
-							species : current_species,
-							latitude : fuzzy_coordinates.latitude,
-							longitude : fuzzy_coordinates.longitude,
-							subkingdom : '',
-							family : '',
-							source_id : 4,
-							icon_type : 6,
-							coordinate_type : 1
-						}
 
+	var axios = require('axios');
+	var https = require('https');
 
-						// Use the species_corrections CSV to either ignore or rename
-						var species_corrections = ct_cache.get('species_corrections');
-						// console.log(species_corrections);
-						var operation = null;
-						var correction = null;
-						for(var j=0; j<species_corrections.length; j++) {
-							if(species_corrections[j].species.toLowerCase() == current_species.trim().toLowerCase()) {
-								operation = species_corrections[j].operation;
-								correction = species_corrections[j].correction;
-								// Since we found a correction, break out of the loop
-								break;
-							}
-						}
+	const axios_instance = axios.create({
+		httpsAgent: new https.Agent({  
+		  rejectUnauthorized: false
+		})
+	});
 
-						if(operation == 'ignore') {
-							// do not add tree (left empty)
-						}
-						else {
-							if(operation == 'rename') {
-								// Set the species with the new correction
-								row.species = correction;
-								row.genus = correction.split(' ')[0];
-								console.log('Species correction: replacing ' + current_species + ' with ' + correction);
+	try {
+		axios_instance({
+			method: 'get',
+			url: url,
+			headers: {
+				'User-Agent': 'my request',
+				'Authorization': 'Bearer ' + oauth_object.access_token,
+				'Content-Type': 'application/json',
+				'Accept': 'application/json'
+			}
+		}).then(function(response) {
+			console.log('IT CAME HERE');
+			var body = response.data;
+			// console.log('body', body);
+			console.log('body.next_page_url', body.next_page_url);
+			for(var i=0; i < body.data.length; i++) {
+				try {
+					var observation_object = body.data[i];
+					var fuzzy_coordinates = fuzifyCoorinates(observation_object.location.latitude, observation_object.location.longitude);
+					var current_species = observation_object.species[0].latin_name;
+					var current_genus = observation_object.species[0].latin_name.split(' ')[0];
+					var species_parts = current_species.split(' ');
+					// console.log(species_parts);
+					// species_parts must contain at least 2 pieces (genus + species) to be valid
+					if(species_parts.length >= 2) {
+						if(species_parts[1] != '') {
+							var row = {
+								uniquename : 'WFID-' + observation_object.id,
+								genus : current_genus,
+								species : current_species,
+								latitude : fuzzy_coordinates.latitude,
+								longitude : fuzzy_coordinates.longitude,
+								subkingdom : '',
+								family : '',
+								source_id : 4,
+								icon_type : 6,
+								coordinate_type : 1
 							}
 
-							// Add tree if not ignore
-							utils.wfid_insert_tree(row);
-						}
-					}  
+
+							// Use the species_corrections CSV to either ignore or rename
+							var species_corrections = ct_cache.get('species_corrections');
+							// console.log(species_corrections);
+							var operation = null;
+							var correction = null;
+							for(var j=0; j<species_corrections.length; j++) {
+								if(species_corrections[j].species.toLowerCase() == current_species.trim().toLowerCase()) {
+									operation = species_corrections[j].operation;
+									correction = species_corrections[j].correction;
+									// Since we found a correction, break out of the loop
+									break;
+								}
+							}
+
+							if(operation == 'ignore') {
+								// do not add tree (left empty)
+							}
+							else {
+								if(operation == 'rename') {
+									// Set the species with the new correction
+									row.species = correction;
+									row.genus = correction.split(' ')[0];
+									console.log('Species correction: replacing ' + current_species + ' with ' + correction);
+								}
+
+								// Add tree if not ignore
+								utils.wfid_insert_tree(row);
+							}
+						}  
+					}
 				}
-			  }
-			  catch(err) {
-				  console.log(err);
-			  }
+				catch(err) {
+					console.log(err);
+				}
 
-		  }
-		  if(body.next_page_url != null && body.next_page_url != undefined && body.next_page_url != 'null') {
-			  wfid_import_observations_page(body.next_page_url, oauth_object);
-		  }
-		  else {
-			wfid_consolidate_metadata_function();
-		  }
-		}
-	); 	
+			}
+			if(body.next_page_url != null && body.next_page_url != undefined && body.next_page_url != 'null') {
+				wfid_import_observations_page(body.next_page_url, oauth_object);
+			}
+			else {
+				wfid_consolidate_metadata_function();
+			}
+		}).catch(function(err) {
+			console.log('err', err);
+		});
+	} catch (err) {
+		console.log('err', err);
+	}
+
+	// REQUEST IS DEPRECATED
+    // request.get(
+	// 	{
+	// 	  url: url,
+	// 	  json: {},
+	// 	  headers: {
+	// 		  'User-Agent': 'my request',
+	// 		  'Authorization': 'Bearer ' + oauth_object.access_token,
+	// 		  'Content-Type': 'application/json',
+	// 		  'Accept': 'application/json'
+	// 	  }
+	// 	},
+	// 	function(error, response, body){
+	// 	  // console.log(error);
+	// 	  // console.log(response);
+	// 	  // console.log(body);
+	// 	  console.log(body.next_page_url);
+	// 	  for(var i=0; i < body.data.length; i++) {
+	// 		  try {
+	// 			var observation_object = body.data[i];
+	// 			var fuzzy_coordinates = fuzifyCoorinates(observation_object.location.latitude, observation_object.location.longitude);
+	// 			var current_species = observation_object.species[0].latin_name;
+	// 			var current_genus = observation_object.species[0].latin_name.split(' ')[0];
+	// 			var species_parts = current_species.split(' ');
+	// 			// console.log(species_parts);
+	// 			// species_parts must contain at least 2 pieces (genus + species) to be valid
+	// 			if(species_parts.length >= 2) {
+	// 				if(species_parts[1] != '') {
+	// 					var row = {
+	// 						uniquename : 'WFID-' + observation_object.id,
+	// 						genus : current_genus,
+	// 						species : current_species,
+	// 						latitude : fuzzy_coordinates.latitude,
+	// 						longitude : fuzzy_coordinates.longitude,
+	// 						subkingdom : '',
+	// 						family : '',
+	// 						source_id : 4,
+	// 						icon_type : 6,
+	// 						coordinate_type : 1
+	// 					}
+
+
+	// 					// Use the species_corrections CSV to either ignore or rename
+	// 					var species_corrections = ct_cache.get('species_corrections');
+	// 					// console.log(species_corrections);
+	// 					var operation = null;
+	// 					var correction = null;
+	// 					for(var j=0; j<species_corrections.length; j++) {
+	// 						if(species_corrections[j].species.toLowerCase() == current_species.trim().toLowerCase()) {
+	// 							operation = species_corrections[j].operation;
+	// 							correction = species_corrections[j].correction;
+	// 							// Since we found a correction, break out of the loop
+	// 							break;
+	// 						}
+	// 					}
+
+	// 					if(operation == 'ignore') {
+	// 						// do not add tree (left empty)
+	// 					}
+	// 					else {
+	// 						if(operation == 'rename') {
+	// 							// Set the species with the new correction
+	// 							row.species = correction;
+	// 							row.genus = correction.split(' ')[0];
+	// 							console.log('Species correction: replacing ' + current_species + ' with ' + correction);
+	// 						}
+
+	// 						// Add tree if not ignore
+	// 						utils.wfid_insert_tree(row);
+	// 					}
+	// 				}  
+	// 			}
+	// 		  }
+	// 		  catch(err) {
+	// 			  console.log(err);
+	// 		  }
+
+	// 	  }
+	// 	  if(body.next_page_url != null && body.next_page_url != undefined && body.next_page_url != 'null') {
+	// 		  wfid_import_observations_page(body.next_page_url, oauth_object);
+	// 	  }
+	// 	  else {
+	// 		wfid_consolidate_metadata_function();
+	// 	  }
+	// 	}
+	// ); 	
 }
 
 function fuzifyCoorinates(original_latitude, original_longitude) {
@@ -446,173 +551,285 @@ var generateRandomDouble = function(min, max) {
 			
 			// Open a VCF file for writing line by line	
 			var new_vcf_file = fs.createWriteStream(all_vars.study_vcf_processing[study_accession]['vcf_filter_generated_location'], {
-				flags: 'a' // 'a' means appending (old data will be preserved)
+				flags: 'a', // 'a' means appending (old data will be preserved)
+				autoClose: true
 			});
 
-
-
-			// Open the VCF file for reading
-			var liner = new lineByLine(vcf_info_object['vcf_original_location']);
-			
-			var line = "";
-			var headers_line = "";
-			var headers_found = false;
-			var filter_column = -1;
-			var id_column = -1;
-			var lineNumber = 0;
-			
-			while (line = liner.next()) {
-				line = line.toString('ascii');
-				line_tab_parts = line.split('\t');
-				if(line.startsWith('#CHROM')) {
-					headers_line = line;
-					var headers_line_parts = headers_line.split('\t');
-					console.log('headers_line parts', headers_line_parts);
-					filter_column = headers_line_parts.indexOf('FILTER');
-					id_column = headers_line_parts.indexOf('ID');
-					console.log('FILTER COLUMN INDEX IS:' + filter_column);
-					console.log('ID/SNP COLUMN INDEX IS:' + id_column);
-					headers_found = true;
-				}
-
-				var new_line = line;
-				if(headers_found == true) {
-					if(snps_selected[line_tab_parts[id_column]] == undefined) {
-						// alter the line to the following:
-						// replace PASS with FAIL in the FILTER COLUMN
-						// write the line to the new file
-						
-						new_line = new_line.replace('PASS', 'FAIL');
+			var options = {
+				line: "",
+				headers_line: "",
+				headers_found: false,
+				filter_column: -1,
+				id_column: -1,
+				lineNumber: 0,
+				new_vcf_file: new_vcf_file,
+				study_accession: study_accession,
+				vcf_original_location: vcf_info_object['vcf_original_location'],
+				vcf_info_object: vcf_info_object,
+			}
+			process_vcf_lines_and_filter_by_snps(options);
+			function process_vcf_lines_and_filter_by_snps(options) {
+				// Initialize the line reader
+				
+				var lineReader = require('readline').createInterface({
+					input: require('fs').createReadStream(options.vcf_info_object['vcf_original_location'])
+				});
+				// When a line is read, process it
+				lineReader.on('line', function (line) {
+					// console.log('Line from file:', line);
+					// process.stdout.write('.');
+					line = line.toString('ascii');
+					line_tab_parts = line.split('\t');
+					if(line.startsWith('#CHROM')) {
+						options.headers_line = line;
+						var headers_line_parts = options.headers_line.split('\t');
+						// console.log('headers_line parts', headers_line_parts);
+						options.filter_column = headers_line_parts.indexOf('FILTER');
+						options.id_column = headers_line_parts.indexOf('ID');
+						console.log('FILTER COLUMN INDEX IS:' + options.filter_column);
+						console.log('ID/SNP COLUMN INDEX IS:' + options.id_column);
+						options.headers_found = true;
 					}
-				}
+	
+					var new_line = line;
+					if(options.headers_found == true) {
+						if(snps_selected[line_tab_parts[options.id_column]] == undefined) {
+							// alter the line to the following:
+							// replace PASS with FAIL in the FILTER COLUMN
+							// write the line to the new file
+							
+							new_line = new_line.replace('PASS', 'FAIL');
+						}
+					}
+	
+					options.new_vcf_file.write(new_line + "\r\n");
+	
+					if(options.lineNumber % 1000 == 0) {
+						// console.log('Line ' + lineNumber + ': ' + line.toString('ascii'));
+					}
+					options.lineNumber++;
+				});
+	
+				lineReader.on('close', function() {
+					console.log('Finished reading file');
+					file_end(options.new_vcf_file, options.study_accession, options.vcf_original_location);
+				});
+			}
 
-				new_vcf_file.write(new_line + "\r\n");
+
+			function file_end(new_vcf_file, study_accession, vcf_original_location) {
+				//var current_study_accession = study_accession; // not sure if this is async correct
+				// new_vcf_file.end(function () {
+				// 	console.log('File save end');
+				// 	try {
+				// 		// new_vcf_file.close();
+				// 		// new_vcf_file.end();
+				// 	}
+				// 	catch (err) {
+				// 		console.log('File save end', err);
+				// 	}
+				// 	all_vars.vcf_files_generated_count = all_vars.vcf_files_generated_count + 1;
+				// 	all_vars.study_vcf_processing[study_accession]['vcf_filter_generated'] = true;	
+				// 	console.log('File save close');
+
+				// });
+
+				new_vcf_file.close();
+
+				new_vcf_file.on("close", () => {	
+					all_vars.vcf_files_generated_count = all_vars.vcf_files_generated_count + 1;
+					console.log('all_vars.vcf_files_generated_count', all_vars.vcf_files_generated_count);
+					// all_vars.study_vcf_processing[study_accession]['vcf_filter_generated'] = true;	
+					console.log('File save close');
+
+					// THIS CHECKS IF ALL FILES HAVE BEEN GENERATED
+					console.log('vcf_files_generated_count', all_vars.vcf_files_generated_count);
+					console.log('vcf_files_count', all_vars.vcf_files_count);
+					if(all_vars.vcf_files_generated_count == all_vars.vcf_files_count) {
+						console.log('All VCF files have been generated and is now about to be filtered')
+						
+						// all files have been finished being generated
+						// so now we need to execute vcftools to perform the actual filter
+						for(var i=0; i<all_vars.studies.length; i++) {
+							var study_accession = all_vars.studies[i];
+							console.log(study_accession);
+							var vcf_info_object = all_vars.study_vcf_processing[study_accession];
+		
+							all_vars.study_vcf_processing[study_accession]['vcf_filtered_location'] = __dirname + '/../store/' + all_vars.analysis_id + '_' + study_accession + '_filtered.vcf';
+							console.log(all_vars.study_vcf_processing[study_accession]['vcf_filtered_location']);
+		
+							if(fs.existsSync(all_vars.study_vcf_processing[study_accession]['vcf_filtered_location'])) {
+								fs.unlinkSync(all_vars.study_vcf_processing[study_accession]['vcf_filtered_location']);
+							}
+
+							
+							const exec = require('child_process').exec;
+							// code = execSync('node -v');
+							var cmd = "/usr/local/bin/vcftools --vcf " + vcf_info_object['vcf_filter_generated_location'] + " --stdout --recode --remove-filtered-all  > " + vcf_info_object['vcf_filtered_location'];
+							console.log('cmd', cmd);
+							perform_filtering_with_vcftools(cmd, vcf_info_object);
+							function perform_filtering_with_vcftools(cmd, vcf_info_object) {
+								var child = exec(cmd, function(error, stdout, stderr) {
+									if(error) {
+										console.log(error);
+										results['error'] = true;
+										// res.send(JSON.stringify(results));
+										return;
+									}
+							
+									console.log('New filtered VCF generated');
+			
+									// We have the filtered file and now we can upload it back to server
+									// Open file as a readable stream
+									const fileStream = fs.createReadStream(vcf_info_object['vcf_filtered_location']);
+			
+			
+									const form = new FormData();
+									// Pass file stream directly to form
+									form.append('galaxy_id', all_vars['galaxy_id']);
+									form.append('history_id', all_vars['history_id']);
+									form.append('file1', fileStream, 'AN' + all_vars.analysis_id + '_' + vcf_info_object['study'] + '_snps.vcf');
+							
+			
+									var url = all_vars.cartogratree_base_url + "/cartogratree_uianalysis/upload_file_to_history";
+									axios_instance.post(url, form, {
+										headers: {
+											...form.getHeaders()
+										},	
+										'maxContentLength': Infinity,
+										'maxBodyLength': Infinity						
+									}).then(function(response) {
+										console.log(response.data)
+										var resp_object = JSON.stringify(response.data);
+										all_vars.upload_history_files_count = all_vars.upload_history_files_count + 1;
+										checkIfUploadsCompleted();
+										// fs.unlink(all_vars.study_vcf_processing[study_accession]['vcf_filtered_location']);
+									})
+									.catch(function (error) {
+										console.log(error);
+										all_vars.upload_history_files_count = all_vars.upload_history_files_count + 1;
+										checkIfUploadsCompleted();
+										// fs.unlink(all_vars.study_vcf_processing[study_accession]['vcf_filtered_location']);
+									});
+
+									function checkIfUploadsCompleted() {
+										if(all_vars.upload_history_files_count == all_vars.vcf_files_count) {
+											console.log('Files finished uploading');
+											// clearInterval(check_if_files_uploaded_interval);
+											res.send(JSON.stringify({result: 'success'}));
+										}
+									}
+			
+									//exec("rm -f " + __dirname + '/../store/' + analysis_id + '_pca_phenotypes.csv');
+									//exec("rm -f " + __dirname + '/../store/' + analysis_id + '_pca_phenotypes.jpeg');
+									// res.send(JSON.stringify(results));
+								});
+							}
+						}
+					}
+
+				});
+
+				new_vcf_file.on("finish", () => {
+					// console.log("FILE IS NOW FINISHED");
+				})
 
 				
 
-				if(lineNumber % 1000 == 0) {
-					// console.log('Line ' + lineNumber + ': ' + line.toString('ascii'));
-				}
-				lineNumber++;
 			}
-			
-			console.log('end of line reached');
-
-			// Close the read file
-			function file_end(new_vcf_file, study_accession, vcf_original_location) {
-				//var current_study_accession = study_accession; // not sure if this is async correct
-				new_vcf_file.end(function () {
-					console.log('File save end');
-					new_vcf_file.close();
-					all_vars.vcf_files_generated_count = all_vars.vcf_files_generated_count + 1;
-					all_vars.study_vcf_processing[study_accession]['vcf_filter_generated'] = true;	
-					console.log('File save close');
-
-				});
-			}
-			file_end(new_vcf_file,study_accession, vcf_info_object['vcf_original_location']); // calls the function to remember the parameter values
-
-			// new_vcf_file.end(function () {
-			// 	console.log('File save end');
-			// 	new_vcf_file.close();
-			// 	vcf_files_generated_count = vcf_files_generated_count + 1;
-			// 	study_vcf_processing[study_accession]['vcf_filter_generated'] = true;	
-			// 	console.log('File save close');	
-			// });
-			// new_vcf_file.close()
 		}
 
 		// VCF GENERATION WITH FILTER MODIFICATIONS DONE TO THE FILTER COLUMN
 		// NOW CONTINUE TO PERFORM THE ACTUAL FILTERING USING VCF TOOLS
-		var interval_check_generated_completion = setInterval(function() {
-			console.log('Interval checking on VCF generation...');
-			console.log('vcf_files_generated_count', all_vars.vcf_files_generated_count);
-			console.log('vcf_files_count', all_vars.vcf_files_count);
-			if(all_vars.vcf_files_generated_count == all_vars.vcf_files_count) {
-				console.log('All VCF files have been generated and is now about to be filtered')
-				// all files have been finished being generated
-				// so now we need to execute vcftools to perform the actual filter
-				for(var i=0; i<all_vars.studies.length; i++) {
-					var study_accession = all_vars.studies[i];
-					var vcf_info_object = all_vars.study_vcf_processing[study_accession];
+		// var interval_check_generated_completion = setInterval(function() {
+		// 	console.log('Interval checking on VCF generation...');
+		// 	console.log('vcf_files_generated_count', all_vars.vcf_files_generated_count);
+		// 	console.log('vcf_files_count', all_vars.vcf_files_count);
+		// 	if(all_vars.vcf_files_generated_count == all_vars.vcf_files_count) {
+		// 		console.log('All VCF files have been generated and is now about to be filtered')
+		// 		// all files have been finished being generated
+		// 		// so now we need to execute vcftools to perform the actual filter
+		// 		for(var i=0; i<all_vars.studies.length; i++) {
+		// 			var study_accession = all_vars.studies[i];
+		// 			var vcf_info_object = all_vars.study_vcf_processing[study_accession];
 
-					all_vars.study_vcf_processing[study_accession]['vcf_filtered_location'] = __dirname + '/../store/' + all_vars.analysis_id + '_' + study_accession + '_filtered.vcf';
+		// 			all_vars.study_vcf_processing[study_accession]['vcf_filtered_location'] = __dirname + '/../store/' + all_vars.analysis_id + '_' + study_accession + '_filtered.vcf';
 
 
-					if(fs.existsSync(all_vars.study_vcf_processing[study_accession]['vcf_filtered_location'])) {
-						fs.unlink(all_vars.study_vcf_processing[study_accession]['vcf_filtered_location']);
-					}
+		// 			if(fs.existsSync(all_vars.study_vcf_processing[study_accession]['vcf_filtered_location'])) {
+		// 				fs.unlinkSync(all_vars.study_vcf_processing[study_accession]['vcf_filtered_location']);
+		// 			}
 
-					const exec = require('child_process').exec;
-					// code = execSync('node -v');
-					var cmd = "/usr/local/bin/vcftools --vcf " + vcf_info_object['vcf_filter_generated_location'] + " --stdout --recode --remove-filtered-all  > " + vcf_info_object['vcf_filtered_location'];
-					console.log('cmd', cmd);
-					var child = exec(cmd, function(error, stdout, stderr) {
+		// 			const exec = require('child_process').exec;
+		// 			// code = execSync('node -v');
+		// 			var cmd = "/usr/local/bin/vcftools --vcf " + vcf_info_object['vcf_filter_generated_location'] + " --stdout --recode --remove-filtered-all  > " + vcf_info_object['vcf_filtered_location'];
+		// 			console.log('cmd', cmd);
+		// 			var child = exec(cmd, function(error, stdout, stderr) {
 						
-						if(error) {
-							console.log(error);
-							results['error'] = true;
-							// res.send(JSON.stringify(results));
-							return;
-						}
+		// 				if(error) {
+		// 					console.log(error);
+		// 					results['error'] = true;
+		// 					// res.send(JSON.stringify(results));
+		// 					return;
+		// 				}
 				
-						console.log('New filtered VCF generated');
+		// 				console.log('New filtered VCF generated');
 
-						// We have the filtered file and now we can upload it back to server
-						// Open file as a readable stream
-						const fileStream = fs.createReadStream(vcf_info_object['vcf_filtered_location']);
+		// 				// We have the filtered file and now we can upload it back to server
+		// 				// Open file as a readable stream
+		// 				const fileStream = fs.createReadStream(vcf_info_object['vcf_filtered_location']);
 
 
-						const form = new FormData();
-						// Pass file stream directly to form
-						form.append('galaxy_id', all_vars['galaxy_id']);
-						form.append('history_id', all_vars['history_id']);
-						form.append('file1', fileStream, 'AN' + all_vars.analysis_id + '_' + vcf_info_object['study'] + '_snps.vcf');
+		// 				const form = new FormData();
+		// 				// Pass file stream directly to form
+		// 				form.append('galaxy_id', all_vars['galaxy_id']);
+		// 				form.append('history_id', all_vars['history_id']);
+		// 				form.append('file1', fileStream, 'AN' + all_vars.analysis_id + '_' + vcf_info_object['study'] + '_snps.vcf');
 				
 
-						var url = all_vars.cartogratree_base_url + "/cartogratree_uianalysis/upload_file_to_history";
-						axios_instance.post(url, form, {
-							headers: {
-								...form.getHeaders()
-							},	
-							'maxContentLength': Infinity,
-							'maxBodyLength': Infinity						
-						}).then(function(response) {
-							 console.log(response.data)
-							 var resp_object = JSON.stringify(response.data);
-							 all_vars.upload_history_files_count = all_vars.upload_history_files_count + 1;
-							// fs.unlink(all_vars.study_vcf_processing[study_accession]['vcf_filtered_location']);
-						})
-						.catch(function (error) {
-							console.log(error);
-							all_vars.upload_history_files_count = all_vars.upload_history_files_count + 1;
+		// 				var url = all_vars.cartogratree_base_url + "/cartogratree_uianalysis/upload_file_to_history";
+		// 				axios_instance.post(url, form, {
+		// 					headers: {
+		// 						...form.getHeaders()
+		// 					},	
+		// 					'maxContentLength': Infinity,
+		// 					'maxBodyLength': Infinity						
+		// 				}).then(function(response) {
+		// 					 console.log(response.data)
+		// 					 var resp_object = JSON.stringify(response.data);
+		// 					 all_vars.upload_history_files_count = all_vars.upload_history_files_count + 1;
+		// 					// fs.unlink(all_vars.study_vcf_processing[study_accession]['vcf_filtered_location']);
+		// 				})
+		// 				.catch(function (error) {
+		// 					console.log(error);
+		// 					all_vars.upload_history_files_count = all_vars.upload_history_files_count + 1;
 							
-							// fs.unlink(all_vars.study_vcf_processing[study_accession]['vcf_filtered_location']);
-						});
+		// 					// fs.unlink(all_vars.study_vcf_processing[study_accession]['vcf_filtered_location']);
+		// 				});
 
 
 
-						//exec("rm -f " + __dirname + '/../store/' + analysis_id + '_pca_phenotypes.csv');
-						//exec("rm -f " + __dirname + '/../store/' + analysis_id + '_pca_phenotypes.jpeg');
-						// res.send(JSON.stringify(results));
-					});
+		// 				//exec("rm -f " + __dirname + '/../store/' + analysis_id + '_pca_phenotypes.csv');
+		// 				//exec("rm -f " + __dirname + '/../store/' + analysis_id + '_pca_phenotypes.jpeg');
+		// 				// res.send(JSON.stringify(results));
+		// 			});
 
 
-				}
+		// 		}
 
-				// stop the interval as well
-				clearInterval(interval_check_generated_completion);
+		// 		// stop the interval as well
+		// 		clearInterval(interval_check_generated_completion);
 
-				var check_if_files_uploaded_interval = setInterval(function() {
-					console.log('Checking if files have been uploaded to galaxy...');
-					if(all_vars.upload_history_files_count == all_vars.vcf_files_count) {
-						console.log('Files finished uploading');
-						clearInterval(check_if_files_uploaded_interval);
-						res.send(JSON.stringify({result: 'success'}));
-					}
-				},1000);
-			}
-		}, 1000);
+		// 		var check_if_files_uploaded_interval = setInterval(function() {
+		// 			console.log('Checking if files have been uploaded to galaxy...');
+		// 			if(all_vars.upload_history_files_count == all_vars.vcf_files_count) {
+		// 				console.log('Files finished uploading');
+		// 				clearInterval(check_if_files_uploaded_interval);
+		// 				res.send(JSON.stringify({result: 'success'}));
+		// 			}
+		// 		},1000);
+		// 	}
+		// }, 1000);
 		
 
 		// res.status(200).send({'results':'ok'});	
@@ -808,7 +1025,9 @@ exports.genotypes_snps_get_tree_ids_by_analysis_id = function(req, res, next) {
  */
   exports.popstruct_fast_structure= function(req, res, next) {
 	try {
+		var realtime_client_id = req.body.realtime_client_id;
 		var analysis_id = req.body.analysis_id; 
+		var k_value = req.body.k_value; 
 		var vcf_url = req.body.vcf_url; 
 		var results = {};
 		const axios = require('axios');
@@ -820,11 +1039,30 @@ exports.genotypes_snps_get_tree_ids_by_analysis_id = function(req, res, next) {
 		});
 		instance.get(vcf_url, {responseType: "stream"})  
 		.then(response => {
+
+			// If k_value is unset for some reason, set it as default = 2
+			if (k_value == undefined) {
+				k_value = 2;
+			}
+			else if (k_value == "") {
+				k_value = 2;
+			}
+			k_value = parseInt(k_value);
+			if(k_value == NaN) {
+				k_value = 2;
+			}
+
 			const exec = require('child_process').exec;
 			const execSync = require('child_process').execSync;
 			// remove all analysis_popstruct files for related analysis
 			if(analysis_id != undefined) {
 				if(analysis_id != "") {
+					try {
+						global.io.to(realtime_client_id).emit('analysis_response', {
+							type: 'popstruct_status',
+							message: 'Clearing old population structure analysis files'
+						});
+					} catch (err) { console.log(err) }
 					var cmd_rm = "rm -f " + __dirname + "/../store/" + analysis_id + "_popstruct_*";
 					console.log('cmd', cmd_rm);
 					var child_rm = execSync(cmd_rm, function(error, stdout, stderr) {
@@ -833,6 +1071,12 @@ exports.genotypes_snps_get_tree_ids_by_analysis_id = function(req, res, next) {
 				}
 			}
 
+			try {
+				global.io.to(realtime_client_id).emit('analysis_response', {
+					type: 'popstruct_status',
+					message: 'Initialization - Pulling your selected Population Structure VCF file from Galaxy to CP API for processing...'
+				});
+			} catch (err) { console.log(err) }
 			// Saving file to working directory 
 			var vcf_local_location = __dirname + '/../store/' + analysis_id + '_popstruct_vcf.vcf'; 
 			// Write the file to the store directory using the WriteStream
@@ -841,6 +1085,12 @@ exports.genotypes_snps_get_tree_ids_by_analysis_id = function(req, res, next) {
 			writeStream.on('finish', function() {
 				console.log('File finished written');
 
+				try {
+					global.io.to(realtime_client_id).emit('analysis_response', {
+						type: 'popstruct_status',
+						message: 'Step 1 - Performing PLINK processing on VCF file...'
+					});
+				} catch (err) { console.log(err) }
 				// Run the Plink step 1
 				// code = execSync('node -v');
 				var cmd_plink = __dirname + "/../plink/plink --vcf " + vcf_local_location + " --allow-extra-chr --double-id --make-bed --out "  + __dirname + "/../store/" + analysis_id + '_popstruct_plink';
@@ -849,22 +1099,34 @@ exports.genotypes_snps_get_tree_ids_by_analysis_id = function(req, res, next) {
 					
 					if(error) {
 						console.log(error);
-						results['success'] = false;
-						res.send(JSON.stringify(results));
+						// results['success'] = false;
+						// res.send(JSON.stringify(results));
 						return;
 					}
 
-					var cmd_fast_structure = 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib; export CFLAGS="-I/usr/local/include"; export LDFLAGS="-L/usr/local/lib";  python ' + __dirname + "/../fastStructure/structure.py -K 2 --input=" + __dirname + "/../store/" + analysis_id + '_popstruct_plink' + " --output="  + __dirname + "/../store/" + analysis_id + '_popstruct_plink --full;'; 
+					try {
+						global.io.to(realtime_client_id).emit('analysis_response', {
+							type: 'popstruct_status',
+							message: 'Step 2 - Performing FastStructure processing on PLINK files...'
+						});
+					} catch (err) { console.log(err) }
+					var cmd_fast_structure = 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib; export CFLAGS="-I/usr/local/include"; export LDFLAGS="-L/usr/local/lib";  python ' + __dirname + "/../fastStructure/structure.py -K "  + k_value + " --input=" + __dirname + "/../store/" + analysis_id + '_popstruct_plink' + " --output="  + __dirname + "/../store/" + analysis_id + '_popstruct_plink --full;'; 
 					console.log(cmd_fast_structure);
 					var child_fast_structure = exec(cmd_fast_structure, function(error, stdout, stderr) {
 						console.log('Finished running fast structure');
 						if(error) {
 							console.log(error);
-							results['success'] = false;
-							res.send(JSON.stringify(results));
+							// results['success'] = false;
+							// res.send(JSON.stringify(results));
 							return;
 						}
 
+						try {
+							global.io.to(realtime_client_id).emit('analysis_response', {
+								type: 'popstruct_status',
+								message: 'Step 3 - Using awk and sed to generate IDPanel temporary output file'
+							});
+						} catch (err) { console.log(err) }
 						var cmd_custom_cmds1 = "awk 'BEGIN { OFS = \"_\" } ;{print $1,$2}' " + __dirname + "/../store/" + analysis_id + "_popstruct_plink.fam > " + __dirname + "/../store/" + analysis_id + "_popstruct_IDPanel.txt;";
 						cmd_custom_cmds1 += "sed 's/_/\t/g' " + __dirname + "/../store/" + analysis_id + "_popstruct_IDPanel.txt > " + __dirname + "/../store/" + analysis_id + "_popstruct_IDPaneltab.txt;";
 						cmd_custom_cmds1 += "awk '{print $1,$2}' " + __dirname + "/../store/" + analysis_id + "_popstruct_IDPaneltab.txt > " + __dirname + "/../store/" + analysis_id + "_popstruct_IDfamPanel.txt;";
@@ -872,11 +1134,17 @@ exports.genotypes_snps_get_tree_ids_by_analysis_id = function(req, res, next) {
 							console.log('Finished running custom awk and sed to generate idpanel text files');
 							if(error) {
 								console.log(error);
-								results['success'] = false;
-								res.send(JSON.stringify(results));
+								// results['success'] = false;
+								// res.send(JSON.stringify(results));
 								return;
 							}
 
+							try {
+								global.io.to(realtime_client_id).emit('analysis_response', {
+									type: 'popstruct_status',
+									message: 'Step 4 - Counting the population from IDPanel'
+								});
+							} catch (err) { console.log(err) }
 							// wc -l programming.txt
 							// We need to get the line count from the IDPanel.txt file
 							var cmd_custom_line_count = "wc -l " + __dirname + "/../store/" + analysis_id + "_popstruct_IDPanel.txt";
@@ -885,8 +1153,8 @@ exports.genotypes_snps_get_tree_ids_by_analysis_id = function(req, res, next) {
 								
 								if(error) {
 									console.log(error);
-									results['success'] = false;
-									res.send(JSON.stringify(results));
+									// results['success'] = false;
+									// res.send(JSON.stringify(results));
 									return;
 								}	
 
@@ -902,6 +1170,12 @@ exports.genotypes_snps_get_tree_ids_by_analysis_id = function(req, res, next) {
 								}
 								console.log('Population count', population_count);
 
+								try {
+									global.io.to(realtime_client_id).emit('analysis_response', {
+										type: 'popstruct_status',
+										message: 'Step 5 - Generating Population Panel using R code...'
+									});
+								} catch (err) { console.log(err) }
 								var cmd_custom_r_code = "Rscript " + __dirname + "/../popstruct_from_panel.R ";
 								cmd_custom_r_code += analysis_id + " ";
 								cmd_custom_r_code += population_count + " ";
@@ -913,10 +1187,18 @@ exports.genotypes_snps_get_tree_ids_by_analysis_id = function(req, res, next) {
 									
 									if(error) {
 										console.log(error);
-										results['success'] = false;
-										res.send(JSON.stringify(results));
+										// results['success'] = false;
+										// res.send(JSON.stringify(results));
 										return;
-									}									
+									}				
+									
+									
+									try {
+										global.io.to(realtime_client_id).emit('analysis_response', {
+											type: 'popstruct_status',
+											message: 'Step 6 - Cleaning up PopPanel columns...'
+										});
+									} catch (err) { console.log(err) }
 									
 									var cmd_remove_column_code = "cut -d\\  -f2- " + __dirname + "/../store/" + analysis_id + "_popstruct_PopPanel.txt > " + __dirname + "/../store/" + analysis_id + "_popstruct_PopPanel_final.txt";
 									var child_remove_column_code = exec(cmd_remove_column_code, function(error, stdout, stderr) {
@@ -925,11 +1207,17 @@ exports.genotypes_snps_get_tree_ids_by_analysis_id = function(req, res, next) {
 										
 										if(error) {
 											console.log(error);
-											results['success'] = false;
-											res.send(JSON.stringify(results));
+											// results['success'] = false;
+											// res.send(JSON.stringify(results));
 											return;
 										}		
 										
+										try {
+											global.io.to(realtime_client_id).emit('analysis_response', {
+												type: 'popstruct_status',
+												message: 'Step 7 - Uploading final Population Panel to your galaxy workspace'
+											});
+										} catch (err) { console.log(err) }
 										// We need to upload this file to the workflow
 										// Post the file to galaxy history / workspace
 										const FormData = require('form-data');
@@ -943,23 +1231,36 @@ exports.genotypes_snps_get_tree_ids_by_analysis_id = function(req, res, next) {
 
 											instance.post(req.body.history_upload_url, form, { headers: form.getHeaders() });
 											console.log('Uploaded history file to the workspace');
+
+											try {
+												global.io.to(realtime_client_id).emit('analysis_response', {
+													type: 'popstruct_status',
+													message: 'Population Structure successfully completed! You can find the outputs under the Manage tab.',
+													complete: true
+												});
+											} catch (err) { console.log(err) }
+
+											var cmd_clean_up = "rm -rf " + __dirname + "/../store/" + analysis_id + '_popstruct_*;';
+											var child_clean_up = exec(cmd_clean_up, function(error, stdout, stderr) {
+												console.log('Deleting temporary files');
+												if(error) {
+													console.log(error);
+													// results['success'] = false;
+													// res.send(JSON.stringify(results));
+													return;
+												}
+
+											});
 										}
 										catch (err) {
 											console.log(err);
 										}
-
-										results['updated'] = true;
-										res.send(JSON.stringify(results));
 									});
 								});
 
 							});
 						});
 					});
-
-					
-
-
 				});				
 			});
 			
@@ -976,6 +1277,9 @@ exports.genotypes_snps_get_tree_ids_by_analysis_id = function(req, res, next) {
 	catch (err) {
 		console.log(err);
 	}
+
+	results['success'] = true;
+	res.status(200).send(JSON.stringify(results));
   }
 
  /**
@@ -1192,57 +1496,69 @@ exports.phenotypes_pca = function(req, res, next) {
     // Now we have csv data - awesome
     // console.log(csv_data);
 	var fs = require('fs');
-    fs.writeFileSync(__dirname + '/../store/' + analysis_id + '_pca_phenotypes.csv', csv_data);
+	fs.writeFile(__dirname + '/../store/' + analysis_id + '_pca_phenotypes.csv', csv_data, {flag: 'w'}, function (err) {
+		if (err) {
+			console.log(err);
+			return;
+		}
+		else {
+			
+			generate_pca();
+		}
+	});
+    // fs.writeFileSync(__dirname + '/../store/' + analysis_id + '_pca_phenotypes.csv', csv_data);
 
     //const execSync = require('child_process').execSync;
 	//code = execSync('node -v');
-    const exec = require('child_process').exec;
-	// code = execSync('node -v');
-	var cmd = "Rscript " + __dirname + "/../pca_phenotypes.R " + __dirname + "/../store/ " + analysis_id;
-	console.log('cmd', cmd);
-	var child = exec(cmd, function(error, stdout, stderr) {
-		
-		if(error) {
-			console.log(error);
-			results['error'] = true;
+	function generate_pca() {
+		const exec = require('child_process').exec;
+		// code = execSync('node -v');
+		var cmd = "Rscript " + __dirname + "/../pca_phenotypes.R " + __dirname + "/../store/ " + analysis_id;
+		console.log('cmd', cmd);
+		var child = exec(cmd, function(error, stdout, stderr) {
+			
+			if(error) {
+				console.log(error);
+				results['error'] = true;
+				res.send(JSON.stringify(results));
+				return;
+			}
+
+			// console.log(JSON.stringify(stdout));
+			// var lines = stdout.split("\n");
+			// // var analysis_id = "";
+			// for(var i=0; i<lines.length; i++) {
+			// 	var line = lines[i];
+			// 	console.log('line ' + i + ':' + line);
+			// 	if(line.includes('analysis_id:')) {
+			// 		var line_parts = line.split('analysis_id:');
+			// 		console.log(JSON.stringify(line_parts));
+			// 		//analysis_id = line_parts[1].replaceAll('"','');
+			// 		break;
+			// 	}
+			// }
+			// console.log('Analysis ID:' + analysis_id);
+
+
+			// console.log(JSON.stringify(stderr));
+
+			try {
+				var fs = require('fs');
+				var data = fs.readFileSync(__dirname + '/../store/' + analysis_id + '_pca_phenotypes.jpeg');
+				var data_base64 = Buffer.from(data).toString('base64');
+
+				results['data_base64'] = data_base64;
+				results['updated'] = true;
+
+				exec("rm -f " + __dirname + '/../store/' + analysis_id + '_pca_phenotypes.csv');
+				exec("rm -f " + __dirname + '/../store/' + analysis_id + '_pca_phenotypes.jpeg');
+			}
+			catch (err_pca_gen) {
+				console.log(err_pca_gen);
+			}
 			res.send(JSON.stringify(results));
-			return;
-		}
-
-		// console.log(JSON.stringify(stdout));
-		// var lines = stdout.split("\n");
-		// // var analysis_id = "";
-		// for(var i=0; i<lines.length; i++) {
-		// 	var line = lines[i];
-		// 	console.log('line ' + i + ':' + line);
-		// 	if(line.includes('analysis_id:')) {
-		// 		var line_parts = line.split('analysis_id:');
-		// 		console.log(JSON.stringify(line_parts));
-		// 		//analysis_id = line_parts[1].replaceAll('"','');
-		// 		break;
-		// 	}
-		// }
-		// console.log('Analysis ID:' + analysis_id);
-
-
-		// console.log(JSON.stringify(stderr));
-
-		try {
-			var fs = require('fs');
-			var data = fs.readFileSync(__dirname + '/../store/' + analysis_id + '_pca_phenotypes.jpeg');
-			var data_base64 = Buffer.from(data).toString('base64');
-
-			results['data_base64'] = data_base64;
-			results['updated'] = true;
-
-			exec("rm -f " + __dirname + '/../store/' + analysis_id + '_pca_phenotypes.csv');
-			exec("rm -f " + __dirname + '/../store/' + analysis_id + '_pca_phenotypes.jpeg');
-		}
-		catch (err_pca_gen) {
-			console.log(err_pca_gen);
-		}
-		res.send(JSON.stringify(results));
-	});
+		});
+	}
 
 
 	
@@ -1275,7 +1591,7 @@ exports.environmental_scatter_plot = function(req, res, next) {
 	fs.writeFileSync(__dirname + "/../store/" + analysis_id + '_environmental_scatter_plot.csv', csv_data);	
 	try {
 		const exec = require('child_process').exec;
-		// code = execSync('node -v');
+		// code = ('node -v');
 		var cmd = "Rscript " + __dirname + "/../environmental_scatter_plot.R " + __dirname + "/../store " + analysis_id;
 		
 		var child = exec(cmd, function(error, stdout, stderr) {
@@ -1406,10 +1722,50 @@ exports.analysis_delete_data = function(req, res, next) {
  * @param {object} response - Response object
  * @param {function} next - Next middleware function in the application"s request-response cycle   
  */
-exports.environmental_get_locations_from_treeids = function(req,res,next) {
+ exports.environmental_get_locations_from_treeids = function(req,res,next) {
+	try {
+		var tree_ids = JSON.parse(req.body.tree_ids);
+		//var query_str = "SELECT distinct(latitude, longitude) FROM ct_trees_all_view WHERE uniquename IN (";
+		var query_str = "SELECT latitude,longitude,uniquename FROM ct_trees_all_view WHERE uniquename IN (";
+		for(var i=0; i<tree_ids.length; i++) {
+			if(i > 0) {
+				query_str += ',';
+			}
+			query_str += "'" + tree_ids[i]+ "'"
+		}
+		query_str += ")";
+		
+		console.log(query_str);
+		query (query_str, [], function (err, rows, result) {
+			if (err) {
+				console.log(err);
+				res.status(400);
+				return;
+			}
+			else {
+				console.log(rows);
+				res.status(200).json(rows);
+			}
+		});
+	}
+	catch (err) {
+		res.status(400).send('error:' + err);
+		console.log(err);
+	
+	}
+}
+
+ /**
+ * This should return all lat lon values from the specified tree_ids
+ * @param {object} request - Request object
+ * @param {object} response - Response object
+ * @param {function} next - Next middleware function in the application"s request-response cycle   
+ */
+exports.environmental_get_unique_locations_from_treeids = function(req,res,next) {
 	try {
 		var tree_ids = JSON.parse(req.body.tree_ids);
 		var query_str = "SELECT distinct(latitude, longitude) FROM ct_trees_all_view WHERE uniquename IN (";
+		// var query_str = "SELECT latitude,longitude,uniquename FROM ct_trees_all_view WHERE uniquename IN (";
 		for(var i=0; i<tree_ids.length; i++) {
 			if(i > 0) {
 				query_str += ',';
@@ -3091,7 +3447,7 @@ exports.trees_count = function(req, res, next) {
 	if(filter == "") {
 		filter = "(1 = 1)";
 	}
-	var query_str = "SELECT COUNT(*) as tree_count FROM ct_trees WHERE " + filter + " AND source_id = " + source_id;
+	var query_str = "SELECT COUNT(*) as tree_count FROM public.ct_trees WHERE " + filter + " AND source_id = " + source_id;
 	//var query_str = "SELECT COUNT(*) as tree_count FROM (" + sub_query + ") AS TABLE1;";
 	console.log(query_str);
 	var tree_count = 0;
@@ -3101,7 +3457,7 @@ exports.trees_count = function(req, res, next) {
 		res.status(200).json({'tree_count': cache_result});
 	}
 	else {
-		query (query_str, [], function (err, rows, result) {
+		query(query_str, [], function (err, rows, result) {
 			if (err) {
 				console.log(err);
 				res.status(400);
@@ -3309,6 +3665,54 @@ exports.trees_reload = function(req, res, next) {
 		}
 		else {
 			console.log('process_trees_reload function is already running - will not re-execute this until it finishes.');
+		}
+	}
+	else {
+		res.status(200).json("no asup was given");
+		return;
+	}
+}
+
+/**
+ * Clears the cache and refreshes the popstruct data within the popstruct ct trees view
+ * @param {object} request - Request object
+ * @param {object} response - Response object
+ * @param {function} next - Next middleware function in the application"s request-response cycle   
+ */
+exports.popstruct_reload = function(req, res, next) {
+	var api_key = req.query.api_key;
+	var api_superuser_password = req.query.asup;
+
+	//utils.valid_api_key(api_key, res, function() {
+	if(config.conf.api_superuser_password == api_superuser_password) {	
+		// ct_cache.clear();		
+		//var skip_to = req.query.skip_to;
+		//utils.treesnap_add("https://treesnap.org/web-services/v1/observations?page=" + page_num);
+		const defaults = {
+			shell: true
+		};
+		
+		// Check if process_trees_reload is already running
+		var is_running = ct_cache.get('ct_api_process_popstruct_reload_running');
+		if(is_running != true) {
+			ct_cache.put('ct_api_process_trees_reload_running', true);
+			var child = spawn('node', ['--max-old-space-size=4096', __dirname + '/../process_popstruct_reload.js']);
+			child.on('exit', function (code, signal) {
+				ct_cache.clear();	
+			//console.log('child process exited with ' + 'code ' + code + ' and signal ' + signal);
+			});	
+			child.stdout.on('data', (data) => {
+			console.log("" + data + "");
+			});
+			child.stderr.on('data', (data) => {
+			console.error("" + data + "");
+			});		
+			
+			res.status(200).json("success");
+			return;
+		}
+		else {
+			console.log('process_popstruct_reload function is already running - will not re-execute this until it finishes.');
 		}
 	}
 	else {
@@ -3799,8 +4203,8 @@ exports.treesnap_consolidate_subkingdoms = async function(req, res, next) {
 				}
 				pg_n_client.querySync("UPDATE ct_trees_treesnap SET subkingdom = 'angiosperms' WHERE genus ILIKE 'acer' AND subkingdom IS NULL AND source_id=1;");
 				pg_n_client.querySync("UPDATE ct_trees_treesnap SET subkingdom = 'gymnosperms' WHERE genus ILIKE 'pinus' AND subkingdom IS NULL AND source_id=1;");
-				console.log('Saving failed species to ' + __basedir + '/info_species_without_organismprop_subkingdom_data.txt');
-				fs.writeFile(__basedir + '/info_species_without_organismprop_subkingdom_data.txt', species_without_organismprop_subkingdom_data, function (err) {
+				console.log('Saving failed species to ' + __dirname + '/info_species_without_organismprop_subkingdom_data.txt');
+				fs.writeFile(__dirname + '/info_species_without_organismprop_subkingdom_data.txt', species_without_organismprop_subkingdom_data, function (err) {
 				  if (err) throw err;
 				  console.log('Saved!');
 				});
@@ -3984,7 +4388,7 @@ exports.force_reload_treesnap = function(req, res, next) {
 		
 		//console.log('Performing Treesnap_add page no:' + page_num);
 		utils.treesnap_terms = [];
-		utils.treesnap_add("https://treesnap.org/web-services/v1/observations?page=" + page_num);
+		// utils.treesnap_add("https://treesnap.org/web-services/v1/observations?page=" + page_num);
 		res.status(200).json("success");
 		return;
 	}
@@ -4925,31 +5329,57 @@ exports.publications_tree_get = function(req, res, next) {
 		var cached_val = null;//ct_cache.get(key);
 
 		if (cached_val == null) {
-			var options = {
-				uri: "https://treesnap.org/web-services/v1/observation/" + tree_id, 
-				method: "GET",
+			// DEPRECATED: Request module has been deprecated
+			// var options = {
+			// 	uri: "https://treesnap.org/web-services/v1/observation/" + tree_id, 
+			// 	method: "GET",
+			// 	headers: {
+			// 		"Authorization": "Bearer " + process.env.TREESNAP_BEARER,
+			// 		"Accept": "application/json",
+			// 	},
+			// 	rejectUnauthorized: false
+			// }
+			var axios = require('axios');
+			var https = require('https');
+	
+			const axios_instance = axios.create({
+				httpsAgent: new https.Agent({  
+				  rejectUnauthorized: false
+				})
+			});
+			axios_instance({
+				method: 'get',
+				url: "https://treesnap.org/web-services/v1/observation/" + tree_id,
 				headers: {
 					"Authorization": "Bearer " + process.env.TREESNAP_BEARER,
 					"Accept": "application/json",
 				},
-				rejectUnauthorized: false
-			}
-			var req_result = request(options, function(error, response, body) {
-				if (error) {
-					console.log(error);
-					res.status(400);
-					return;
-				}
 
-				if (response.statusCode == 200) {
-					ct_cache.put(key, body, cache_time_24);
-					console.log(JSON.parse(body).data);
-					res.status(200).json(JSON.parse(body).data);
-					return;
-				}	
-				res.status(response.statusCode).json("status code: " + response.statusCode);
+			}).then(function(response) {
+				ct_cache.put(key, response.data, cache_time_24);
+				console.log(response.data);
+				// res.status(200).json(JSON.parse(body).data);
+				res.status(200).json(response.data);
 				return;
 			});
+
+			// DEPRECATED: Request module has been deprecated
+			// var req_result = request(options, function(error, response, body) {
+			// 	if (error) {
+			// 		console.log(error);
+			// 		res.status(400);
+			// 		return;
+			// 	}
+
+			// 	if (response.statusCode == 200) {
+			// 		ct_cache.put(key, body, cache_time_24);
+			// 		console.log(JSON.parse(body).data);
+			// 		res.status(200).json(JSON.parse(body).data);
+			// 		return;
+			// 	}	
+			// 	res.status(response.statusCode).json("status code: " + response.statusCode);
+			// 	return;
+			// });
 		}
 		else {
 			console.log(val);
@@ -4959,51 +5389,79 @@ exports.publications_tree_get = function(req, res, next) {
 	});
 }
 
-/**
- * Returns the treesnap data and properties of a treesnap tree as an object
- * @param {object} request - Request object
- * @param {object} response - Response object
- * @param {function} next - Next middleware function in the application"s request-response cycle
- */
-exports.tree_get_treesnap_from_treesnap_api = function(req, res, next) {
-	var tree_id = req.query.tree_id.split(".")[1];
-	var api_key = req.query.api_key;		
+// THIS FUNCTION IS UNUSED SO COMMENTED OUT
+// /**
+//  * Returns the treesnap data and properties of a treesnap tree as an object
+//  * @param {object} request - Request object
+//  * @param {object} response - Response object
+//  * @param {function} next - Next middleware function in the application"s request-response cycle
+//  */
+// exports.tree_get_treesnap_from_treesnap_api = function(req, res, next) {
+// 	var tree_id = req.query.tree_id.split(".")[1];
+// 	var api_key = req.query.api_key;		
 
-	utils.valid_api_key(api_key, res, function() {
-		var key = "ts_"+ tree_id; 
-		var cached_val = null;//ct_cache.get(key);
+// 	utils.valid_api_key(api_key, res, function() {
+// 		var key = "ts_"+ tree_id; 
+// 		var cached_val = null;//ct_cache.get(key);
 
-		if (cached_val == null) {
-			var options = {
-				uri: "https://treesnap.org/web-services/v1/observation/" + tree_id, 
-				method: "GET",
-				headers: {
-					"Authorization": "Bearer " + process.env.TREESNAP_BEARER,
-					"Accept": "application/json",
-				},
-			}
-			var req_result = request(options, function(error, response, body) {
-				if (error) {
-					console.log(error);
-					res.status(400);
-					return;
-				}
+// 		if (cached_val == null) {
+// 			// DEPRECATED: Request module has been deprecated
+// 			// var options = {
+// 			// 	uri: "https://treesnap.org/web-services/v1/observation/" + tree_id, 
+// 			// 	method: "GET",
+// 			// 	headers: {
+// 			// 		"Authorization": "Bearer " + process.env.TREESNAP_BEARER,
+// 			// 		"Accept": "application/json",
+// 			// 	},
+// 			// }
 
-				if (response.statusCode == 200) {
-					ct_cache.put(key, body, cache_time_24);
-					res.status(200).json(JSON.parse(body).data);
-					return;
-				}	
-				res.status(response.statusCode).json("status code: " + response.statusCode);
-				return;
-			});
-		}
-		else {
-			res.status(200).json(val);
-			return;
-		}
-	});
-}
+// 			var axios = require('axios');
+// 			var https = require('https');
+	
+// 			const axios_instance = axios.create({
+// 				httpsAgent: new https.Agent({  
+// 				  rejectUnauthorized: false
+// 				})
+// 			});
+// 			axios_instance({
+// 				method: 'get',
+// 				url: "https://treesnap.org/web-services/v1/observation/" + tree_id,
+// 				headers: {
+// 					"Authorization": "Bearer " + process.env.TREESNAP_BEARER,
+// 					"Accept": "application/json",
+// 				},
+
+// 			}).then(function(response) {
+// 				ct_cache.put(key, response.data, cache_time_24);
+// 				console.log(response.data);
+// 				// res.status(200).json(JSON.parse(body).data);
+// 				res.status(200).json(response.data);
+// 				return;
+// 			});
+
+// 			// DEPRECATED: Request module has been deprecated
+// 			// var req_result = request(options, function(error, response, body) {
+// 			// 	if (error) {
+// 			// 		console.log(error);
+// 			// 		res.status(400);
+// 			// 		return;
+// 			// 	}
+
+// 			// 	if (response.statusCode == 200) {
+// 			// 		ct_cache.put(key, body, cache_time_24);
+// 			// 		res.status(200).json(JSON.parse(body).data);
+// 			// 		return;
+// 			// 	}	
+// 			// 	res.status(response.statusCode).json("status code: " + response.statusCode);
+// 			// 	return;
+// 			// });
+// 		}
+// 		else {
+// 			res.status(200).json(val);
+// 			return;
+// 		}
+// 	});
+// }
 
 /**
  * Returns the total number of publications currently recorded
@@ -5102,13 +5560,13 @@ exports.total_trees = function(req, res, next) {
 }
 
 function build_tree_query_str(query_conditions, sources) {	
-	var query_str = "SELECT DISTINCT ON(uniquename) * FROM public.ct_trees_all_view_population_testing WHERE";
+	var query_str = "SELECT DISTINCT ON(uniquename) * FROM public.ct_trees_all_view WHERE";
 	//var query_str = "SELECT * FROM ct_trees_all_view WHERE";
 	if (query_conditions.length > 0) {
 		query_str = query_str + " " + query_conditions + " AND (";
 	}
 	else {
-		query_str = "SELECT DISTINCT ON(uniquename) * FROM public.ct_trees_all_view_population_testing WHERE (";
+		query_str = "SELECT DISTINCT ON(uniquename) * FROM public.ct_trees_all_view WHERE (";
 	}
 
 	for (var s = 0; s < sources.length; s++) {
@@ -5463,8 +5921,10 @@ function wfid_consolidate_metadata_function() {
 	
 	console.log(study_accession);
    if(cached_trees == null) {
+	   console.log('Cache is empty, performing a direct query...');
 	   var args = [study_accession];
-	   query ("SELECT * FROM public.ct_trees_all_view_population_testing WHERE study_accession = $1 AND population IS NOT NULL;", args, function(err, rows, result) {
+	   query ("SELECT * FROM public.ct_trees_all_view WHERE study_accession = $1 AND population IS NOT NULL;", args, function(err, rows, result) {
+	   // query ("SELECT * FROM public.cartogratree_popstruct_layer WHERE study_accession = $1 AND population IS NOT NULL;", args, function(err, rows, result) {
 		   if (err) {
 			   console.log(err);
 			   res.status(400);
