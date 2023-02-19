@@ -791,8 +791,8 @@ function execute_request(query_str, query_args, response, next) {
 
 function valid_api_key(key, response, callback) {
 	var encrypted_key = encrypt(key).toString("hex");
-	//console.log(key);
-	//console.log(encrypted_key);
+	// console.log(key);
+	// console.log(encrypted_key);
 	pool.query("SELECT * FROM ct_api_keys WHERE api_key = $1", [encrypted_key], function (err, result) {
 		if (err || result.rowCount == 0) {
 			//console.log("Invalid API key: " + result.rowCount); //this causes the server 'crash'
@@ -813,7 +813,7 @@ function encrypt(string) {
 		let cipher = crypto.createCipheriv('aes-256-cbc', process.env.TOKEN_PW, IV);
 		var encrypted = cipher.update(string, "utf8", "base64");
 		encrypted += cipher.final("base64");
-		console.log('encrypted', encrypted);
+		// console.log('encrypted', encrypted);
 		return encrypted;
 	} 
 	catch (exception) {
@@ -828,7 +828,7 @@ function decrypt(string) {
 		let decipher = crypto.createDecipheriv('aes-256-cbc', process.env.TOKEN_PW, IV);
 		var decrypted = decipher.update(string, "base64", "utf8");
 		decrypted += decipher.final("utf8");
-		console.log('decrypted', decrypted);
+		// console.log('decrypted', decrypted);
 		return decrypted;
 	} 
 	catch (exception) {

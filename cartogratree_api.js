@@ -29,6 +29,42 @@ var port = process.env.PORT || 8088;
 
 var screen_enabled = false;
 
+var logStream = fs.createWriteStream('./log.txt', {
+	encoding: 'utf8',
+	flags: 'a'
+});
+
+var old_console_log = console.log;
+// Create a new console.log function so we can write
+// to the log file log.txt
+console.log = function(...args) {
+	var timestamp = new Date().toISOString();
+	for(let val of args) {
+		try {
+			if(typeof val === 'object') {
+				val = JSON.stringify(val);
+			}
+			val = '[' + timestamp + '] ' + val + "\n";
+			process.stdout.write(val);
+			logStream.write(val);
+			try {
+				io.to('cp-debug').emit('debug-line', {
+					line: val
+				});
+			}
+			catch (err) {
+				// not much we can do about an error emitting so ignore.
+			}
+		}
+		catch (err) {
+			process.stdout.write('[' + timestamp + '] ' + err + "\n");
+			logStream.write('[' + timestamp + '] ' + err + "\n");
+		}
+	}
+}
+
+// process.stdout.write = process.stderr.write = access.write.bind(access);
+
 
 var ON_DEATH = require('death'); //this is intentionally ugly
  
@@ -128,11 +164,21 @@ if(screen_enabled) {
 var CronJob = require('cron').CronJob;
 var job1m = new CronJob('0 */1 * * * *', function() {
   // console.log('You will see this message every second');
+  const memory_used = process.memoryUsage().heapUsed / 1024 / 1024;
   if(screen_enabled) {
 	screen.clear('box_right_top')
-	const memory_used = process.memoryUsage().heapUsed / 1024 / 1024;
 	screen.output('box_right_top', '{bold}Resource Window{/bold}');
 	screen.output('box_right_top', '{bold}Memory Used:' + memory_used + ' MB{/bold}');
+  }
+  else {
+	console.log('memory_used: ' + memory_used + ' MB');
+  }
+
+  try {
+	console.log('realtime_connections_count: ' + io.engine.clientsCount);
+  }
+  catch (err) {
+	console.log(err);
   }
 }, null, true, 'America/Los_Angeles');
 job1m.start();
@@ -185,13 +231,19 @@ const io = require('socket.io')(server, {
 global['io'] = io;
 
 io.on('connection', async (client) => { 
-	console.log('Realtime connection created');
-	console.log('Client ID:' + client.id);
+	console.log('Realtime connection created: ' + client.id);
+	// console.log('Client ID:' + client.id);
 	io.to(client.id).emit('client_id',{client_id:client.id});
 	io.to(client.id).emit('version',{message:'CartograPlant realtime system v1.0'});
 	client.onAny(function(event,data) {
 		console.log(event);
 		console.log(data);
+	});
+	client.on('join_channel', (obj) => {
+		if(obj['channel_name'] != undefined) {
+			// console.log('channel_name: ' + obj['channel_name']);
+			client.join(obj['channel_name']);
+		}
 	});
 });
 
@@ -990,7 +1042,7 @@ var ctapi_wss = {
 						stream.on('data', (row) => {
 							//console.log(row);
 							try {
-								console.log(row.species.toString().trim());
+								// console.log(row.species.toString().trim());
 								species_array.push(row.species.toString().trim());
 							}
 							catch(err) {

@@ -1268,8 +1268,8 @@ exports.genotypes_snps_get_tree_ids_by_analysis_id = function(req, res, next) {
 		})
 		.catch (err => {
 			console.log(err);
-			results['success'] = false;
-			res.send(JSON.stringify(results));
+			// results['success'] = false;
+			// res.send(JSON.stringify(results));
 			return;
 		});
 
@@ -4991,7 +4991,7 @@ exports.tree_get_basic = function(req, res, next) {
 				}
 				// console.log('Querying the ct_trees');
 				if(rows != undefined) {
-					console.log('rows defined');
+					// console.log('rows defined');
 					if(rows.length > 0) {
 						// console.log('rows more than 0');
 						var species_name = rows[0].species;
