@@ -15,3 +15,7 @@ vcftools/*
 store/*.jpeg
 node_modules/*
 crash_report.txt
+
+# Allow
+!package.json
+

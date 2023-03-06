@@ -1,0 +1,66 @@
+{
+  "name": "cartogratree_api",
+  "version": "1.0.0",
+  "description": "RESTFul API for CartograTree",
+  "main": "cartogratree_api.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://gitlab.com/TreeGenes/CartograTree.git"
+  },
+  "keywords": [
+    "Landscape genomics",
+    "Association mapping"
+  ],
+  "author": "Plant Computational Genomics Lab",
+  "license": "CC BY",
+  "bugs": {
+    "url": "https://gitlab.com/TreeGenes/CartograTree/issues"
+  },
+  "homepage": "https://gitlab.com/TreeGenes/CartograTree/NodeJsAPI/README.md",
+  "dependencies": {
+    "async": "^2.6.2",
+    "axios": "^0.21.4",
+    "blessed": "^0.1.81",
+    "body-parser": "^1.19.0",
+    "capture-console": "^1.0.1",
+    "child_process": "^1.0.2",
+    "cors": "^2.8.5",
+    "cron": "^1.8.2",
+    "csv-parser": "^3.0.0",
+    "death": "^1.1.0",
+    "delay": "^4.3.0",
+    "dotenv": "^8.0.0",
+    "express": "^4.18.2",
+    "form-data": "^4.0.0",
+    "htmlparser2": "^4.1.0",
+    "is-sea": "^0.3.1",
+    "log-timestamp": "^0.3.0",
+    "lzutf8": "^0.5.5",
+    "memory-cache": "^0.2.0",
+    "n-readlines": "^1.0.1",
+    "node-cache": "^4.2.0",
+    "node-gyp": "^9.3.0",
+    "node-html-parser": "^1.2.18",
+    "perf_hooks": "0.0.1",
+    "pg": "^8.9.0",
+    "pg-native": "^3.0.0",
+    "pg-query-stream": "^3.0.3",
+    "pg-sync": "^0.2.0",
+    "phpunserialize": "^1.1.0",
+    "redis": "^2.8.0",
+    "request": "^2.88.2",
+    "request-promise": "^4.2.4",
+    "response-time": "^2.3.2",
+    "retus": "^1.1.2",
+    "simple-json-db": "^1.2.3",
+    "socket.io": "^4.5.4",
+    "ws": "^7.2.1",
+    "zlib": "^1.0.5"
+  },
+  "devDependencies": {
+    "nodemon": "^1.19.1"
+  }
+}
