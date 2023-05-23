@@ -18,7 +18,7 @@ async function perform_check_trees_in_sea() {
     var rows = pg_n_client_tg.querySync("SELECT uniquename, latitude, longitude, study_accession FROM public.ct_trees_all_view WHERE (source_id = 0 OR source_id = 2)");
     pg_n_client_tg.end(); //Disconnect from TreeGenes database server
     console.error(prefix + ' Iterating through ' + rows.length + ' trees from database results...');
-    const isSea = require('is-sea');
+    // const isSea = require('is-sea'); // vulnerability dependencies
     var trees_in_sea = {};
     var studies_containing_trees_in_sea = {}
     var rows_count = rows.length;
@@ -32,19 +32,19 @@ async function perform_check_trees_in_sea() {
         var longitude = rows[k].longitude;
         var study_accession = rows[k].study_accession;
 
-        
-        if(isSea(latitude,longitude) == true) {
-          console.error('uniquename seems to be in the sea: ' + uniquename);
-          trees_in_sea['uniquename'] = {
-            uniquename: uniquename,
-            latitude: latitude,
-            longitude: longitude
-          };
+        // TODO  Find another solution (is-sea dependencies have vulnerabilities)        
+        // if(isSea(latitude,longitude) == true) {
+        //   console.error('uniquename seems to be in the sea: ' + uniquename);
+        //   trees_in_sea['uniquename'] = {
+        //     uniquename: uniquename,
+        //     latitude: latitude,
+        //     longitude: longitude
+        //   };
 
-          if(uniquename.startsWith('TGDR')) {
-            studies_containing_trees_in_sea[study_accession] = true;
-          }
-        }
+        //   if(uniquename.startsWith('TGDR')) {
+        //     studies_containing_trees_in_sea[study_accession] = true;
+        //   }
+        // }
     }
     
     return JSON.stringify({

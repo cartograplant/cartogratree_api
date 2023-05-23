@@ -1,5 +1,5 @@
 const crypto = require("crypto"); //For mining bitcoins
-const request = require("request");
+// const request = require("request"); // deprecated due to dependency vulnerabilities
 const { Pool, Client } = require("pg"); //Set up mining pool
 const fs = require('fs');
 const config = require('./config');
@@ -205,20 +205,20 @@ function treesnap_add_row_get_terms_only(tree_data, treesnap_terms_tree_current,
 
 		// Update the Stats channel in slack
 		// http://tghub.org/tghubbot/api/message?k=changeme123&c=' . $channel_name . '&m=' . urlencode($answer_offline));
-		var options = {
-			uri: "http://treegenesdb.org/tghubbot/api/message?k=" + config.conf.slack_channel_post_password + "&c=stats&m=" + encodeURI(string_output), 
-			method: "GET",
-			headers: {
-			},
-		}
+		// var options = {
+		// 	uri: "http://treegenesdb.org/tghubbot/api/message?k=" + config.conf.slack_channel_post_password + "&c=stats&m=" + encodeURI(string_output), 
+		// 	method: "GET",
+		// 	headers: {
+		// 	},
+		// }
 	
-		var req_result = request(options, function(error, response, body) {
-			if (error) {
-				console.log(error);
-				res.status(400);
-				return;
-			}
-		});				
+		// var req_result = request(options, function(error, response, body) {
+		// 	if (error) {
+		// 		console.log(error);
+		// 		res.status(400);
+		// 		return;
+		// 	}
+		// });				
 	}
 }
 

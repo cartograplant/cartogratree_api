@@ -34,7 +34,7 @@ exports.load_species_corrections_from_csv_function = function() {
 /**
  * This requests a new oauth token for World Forest ID via direct function (used for cronjob in cartogratree_api.js)
  */
- exports.wfid_oauth_token_request_function = function(config,request,db_storage) {
+ exports.wfid_oauth_token_request_function = function(config,db_storage) {
    try {
     var url = config.conf_wfid.host + '/oauth/token';
     console.log('oauth/token url', url);

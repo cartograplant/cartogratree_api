@@ -1,5 +1,4 @@
 //nodejs libraries
-const request = require("request");
 const ct_cache = require("memory-cache");
 const crypto = require("crypto");
 //js files 

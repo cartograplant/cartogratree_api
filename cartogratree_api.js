@@ -16,7 +16,7 @@ const pg = require('pg');//Postgres database implementation
 var pg_native_client = require('pg-native');
 //const isSea = require('is-sea');
 const QueryStream = require('pg-query-stream');//Postgres Query Streaming implementation
-const request = require("request");
+// const request = require("request"); // Removed due to vulnerabilities
 const JSONdb = require('simple-json-db');
 var CronJob = require('cron').CronJob;
 const treeController_fuctions = require('./controllers/treeController_functions');
@@ -291,7 +291,7 @@ function wfid_auth() {
 	var oauth_object = db_storage.get('wfid_oauth_object');
 	if(oauth_object == undefined) {
 		// force request for new oauth access_token since none exists
-		treeController_fuctions.wfid_oauth_token_request_function(config,request,db_storage);
+		treeController_fuctions.wfid_oauth_token_request_function(config,db_storage);
 	}
 	else {
 		var current_unix_time = Math.floor(Date.now() / 1000);

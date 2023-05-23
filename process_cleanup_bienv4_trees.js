@@ -6,9 +6,9 @@ const pg = require('pg');//Postgres database implementation
 var pg_native_client = require('pg-native');
 const QueryStream = require('pg-query-stream');
 const cache_time_24 = 24*60*60*1000;
-const isSea = require('is-sea');
+// const isSea = require('is-sea'); // deprecated due to vulnerable dependencies
 const retus = require("retus");
-console.log(isSea(0,0));
+// console.log(isSea(0,0));
 
 //Start up pg_pool which is used by Query Streams
 const conf = require('./config.js');
@@ -71,13 +71,13 @@ function perform_bienv4_cleanup_trees() {
 					
 					
 					if(method == 1) {
-						if(isSea(lat,lon) == true) {
-							//This tree is in the sea, so remove italics
-							removed_count = removed_count + 1;
-							console.log(prefix + ' ' + removed_count + ' tree removed...');
-							console.log(trees_rows[j]);
-							pg_n_client_tg.querySync("DELETE FROM ct_trees_bien WHERE uniquename = '" + uniquename + "';");
-						}
+						// if(isSea(lat,lon) == true) {
+						// 	//This tree is in the sea, so remove italics
+						// 	removed_count = removed_count + 1;
+						// 	console.log(prefix + ' ' + removed_count + ' tree removed...');
+						// 	console.log(trees_rows[j]);
+						// 	pg_n_client_tg.querySync("DELETE FROM ct_trees_bien WHERE uniquename = '" + uniquename + "';");
+						// }
 					}
 					
 					

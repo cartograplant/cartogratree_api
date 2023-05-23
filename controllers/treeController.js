@@ -1,6 +1,6 @@
 //nodejs libraries
 const { PerformanceObserver, performance } = require('perf_hooks');
-const request = require("request");
+// const request = require("request"); // deprecated due to vulnerable dependencies
 const ct_cache = require("memory-cache");
 var fs = require('fs');
 //dependencies js
@@ -55,19 +55,23 @@ exports.set_global = function (global_obj) {
 					utils.wfid_delete_tree(observation_id);
 
 					var url = config.conf_wfid.host + '/api/v1/third-party/single-observation/' + observation_id;
-					// pull the new observation data
-					request.get(
-						{
-						  url: url,
-						  json: {},
-						  headers: {
-							  'User-Agent': 'my request',
-							  'Authorization': 'Bearer ' + oauth_object.access_token,
-							  'Content-Type': 'application/json',
-							  'Accept': 'application/json'
-						  }
-						},
-						function(error, response, body){
+					try {
+						var axios_instance = axios.create({
+							httpsAgent: new https.Agent({  
+							  rejectUnauthorized: false
+							})
+						});
+						axios_instance({
+							method: 'get',
+							url: url,
+							headers: {
+								'User-Agent': 'my request',
+								'Authorization': 'Bearer ' + oauth_object.access_token,
+								'Content-Type': 'application/json',
+								'Accept': 'application/json'
+							}
+						}).then(function(response) {
+						  var body = response.data;
 						  // console.log(error);
 						  // console.log(response);
 						  // console.log(body);
@@ -75,66 +79,153 @@ exports.set_global = function (global_obj) {
 
 						  // Technically, this should only get one tree since the endpoint should only have one observation
 						  for(var i=0; i < body.data.length; i++) {
-							  try {
-								var observation_object = body.data[i];
-								var fuzzy_coordinates = fuzifyCoorinates(observation_object.location.latitude, observation_object.location.longitude);
-								var current_species = observation_object.species[0].latin_name;
-								var current_genus = observation_object.species[0].latin_name.split(' ')[0];
-								var row = {
-									uniquename : 'WFID-' + observation_object.id,
-									genus : current_genus,
-									species : current_species,
-									latitude : fuzzy_coordinates.latitude,
-									longitude : fuzzy_coordinates.longitude,
-									subkingdom : '',
-									family : '',
-									source_id : 4,
-									icon_type : 6,
-									coordinate_type : 1
-								}
-
-								var species_parts = current_species.split(' ');
-								// species_parts must contain at least 2 pieces (genus + species) to be valid
-								if(species_parts.length >= 2) {
-									if(species_parts[1] != '') {
-										// Use the species_corrections CSV to either ignore or rename
-										var species_corrections = ct_cache.get('species_corrections');
-										var operation = null;
-										var correction = null;
-										for(var j=0; j<species_corrections.length; j++) {
-											if(species_corrections[j].species.toLowerCase() == current_species.trim().toLowerCase()) {
-												operation = species_corrections[j].operation;
-												correction = species_corrections[j].correction;
-												// Since we found a correction, break out of the loop
-												break;
-											}
-										}
-
-										if(operation == 'ignore') {
-											// do not add tree (left empty)
-										}
-										else {
-											if(operation == 'rename') {
-												// Set the species with the new correction
-												row.species = correction;
-												row.genus = correction.split(' ')[0];
-												console.log('Species correction: replacing ' + current_species + ' with ' + correction);
-											}
-
-											// Add tree if not ignore
-											utils.wfid_insert_tree(row);
-										}
-									}
-								}
+							try {
+							  var observation_object = body.data[i];
+							  var fuzzy_coordinates = fuzifyCoorinates(observation_object.location.latitude, observation_object.location.longitude);
+							  var current_species = observation_object.species[0].latin_name;
+							  var current_genus = observation_object.species[0].latin_name.split(' ')[0];
+							  var row = {
+								  uniquename : 'WFID-' + observation_object.id,
+								  genus : current_genus,
+								  species : current_species,
+								  latitude : fuzzy_coordinates.latitude,
+								  longitude : fuzzy_coordinates.longitude,
+								  subkingdom : '',
+								  family : '',
+								  source_id : 4,
+								  icon_type : 6,
+								  coordinate_type : 1
 							  }
-							  catch(err) {
-								  console.log(err);
+
+							  var species_parts = current_species.split(' ');
+							  // species_parts must contain at least 2 pieces (genus + species) to be valid
+							  if(species_parts.length >= 2) {
+								  if(species_parts[1] != '') {
+									  // Use the species_corrections CSV to either ignore or rename
+									  var species_corrections = ct_cache.get('species_corrections');
+									  var operation = null;
+									  var correction = null;
+									  for(var j=0; j<species_corrections.length; j++) {
+										  if(species_corrections[j].species.toLowerCase() == current_species.trim().toLowerCase()) {
+											  operation = species_corrections[j].operation;
+											  correction = species_corrections[j].correction;
+											  // Since we found a correction, break out of the loop
+											  break;
+										  }
+									  }
+
+									  if(operation == 'ignore') {
+										  // do not add tree (left empty)
+									  }
+									  else {
+										  if(operation == 'rename') {
+											  // Set the species with the new correction
+											  row.species = correction;
+											  row.genus = correction.split(' ')[0];
+											  console.log('Species correction: replacing ' + current_species + ' with ' + correction);
+										  }
+
+										  // Add tree if not ignore
+										  utils.wfid_insert_tree(row);
+									  }
+								  }
 							  }
+							}
+							catch(err) {
+								console.log(err);
+							}
+			  
+						  }	  
+						}).catch(function (err) {
+							console.log('err', err);
+						});
+					}
+					catch (err) {
+						console.log('err', err);
+					}
+					
+					
+					// DEPRECATED the request module
+					// // pull the new observation data
+					// request.get(
+					// 	{
+					// 	  url: url,
+					// 	  json: {},
+					// 	  headers: {
+					// 		  'User-Agent': 'my request',
+					// 		  'Authorization': 'Bearer ' + oauth_object.access_token,
+					// 		  'Content-Type': 'application/json',
+					// 		  'Accept': 'application/json'
+					// 	  }
+					// 	},
+					// 	function(error, response, body){
+					// 	  // console.log(error);
+					// 	  // console.log(response);
+					// 	  // console.log(body);
+
+
+					// 	  // Technically, this should only get one tree since the endpoint should only have one observation
+					// 	  for(var i=0; i < body.data.length; i++) {
+					// 		  try {
+					// 			var observation_object = body.data[i];
+					// 			var fuzzy_coordinates = fuzifyCoorinates(observation_object.location.latitude, observation_object.location.longitude);
+					// 			var current_species = observation_object.species[0].latin_name;
+					// 			var current_genus = observation_object.species[0].latin_name.split(' ')[0];
+					// 			var row = {
+					// 				uniquename : 'WFID-' + observation_object.id,
+					// 				genus : current_genus,
+					// 				species : current_species,
+					// 				latitude : fuzzy_coordinates.latitude,
+					// 				longitude : fuzzy_coordinates.longitude,
+					// 				subkingdom : '',
+					// 				family : '',
+					// 				source_id : 4,
+					// 				icon_type : 6,
+					// 				coordinate_type : 1
+					// 			}
+
+					// 			var species_parts = current_species.split(' ');
+					// 			// species_parts must contain at least 2 pieces (genus + species) to be valid
+					// 			if(species_parts.length >= 2) {
+					// 				if(species_parts[1] != '') {
+					// 					// Use the species_corrections CSV to either ignore or rename
+					// 					var species_corrections = ct_cache.get('species_corrections');
+					// 					var operation = null;
+					// 					var correction = null;
+					// 					for(var j=0; j<species_corrections.length; j++) {
+					// 						if(species_corrections[j].species.toLowerCase() == current_species.trim().toLowerCase()) {
+					// 							operation = species_corrections[j].operation;
+					// 							correction = species_corrections[j].correction;
+					// 							// Since we found a correction, break out of the loop
+					// 							break;
+					// 						}
+					// 					}
+
+					// 					if(operation == 'ignore') {
+					// 						// do not add tree (left empty)
+					// 					}
+					// 					else {
+					// 						if(operation == 'rename') {
+					// 							// Set the species with the new correction
+					// 							row.species = correction;
+					// 							row.genus = correction.split(' ')[0];
+					// 							console.log('Species correction: replacing ' + current_species + ' with ' + correction);
+					// 						}
+
+					// 						// Add tree if not ignore
+					// 						utils.wfid_insert_tree(row);
+					// 					}
+					// 				}
+					// 			}
+					// 		  }
+					// 		  catch(err) {
+					// 			  console.log(err);
+					// 		  }
 				
-						  }
-						}
+					// 	  }
+					// 	}
 						
-					); 				
+					// ); 				
 
 					// insert the new data
 					// utils.wfid_insert_tree(row);
@@ -205,13 +296,18 @@ async function wfid_import_observations_page(url, oauth_object) {
 	var axios = require('axios');
 	var https = require('https');
 
-	const axios_instance = axios.create({
+	var axios_instance = axios.create({
 		httpsAgent: new https.Agent({  
 		  rejectUnauthorized: false
 		})
 	});
 
 	try {
+		var axios_instance = axios.create({
+			httpsAgent: new https.Agent({  
+			  rejectUnauthorized: false
+			})
+		});
 		axios_instance({
 			method: 'get',
 			url: url,
@@ -427,7 +523,7 @@ var generateRandomDouble = function(min, max) {
 		var axios = require('axios');
 		var https = require('https');
 
-		const axios_instance = axios.create({
+		var axios_instance = axios.create({
 			httpsAgent: new https.Agent({  
 			  rejectUnauthorized: false
 			})
@@ -692,6 +788,11 @@ var generateRandomDouble = function(min, max) {
 							
 			
 									var url = all_vars.cartogratree_base_url + "/cartogratree_uianalysis/upload_file_to_history";
+									var axios_instance = axios.create({
+										httpsAgent: new https.Agent({  
+										  rejectUnauthorized: false
+										})
+									});
 									axios_instance.post(url, form, {
 										headers: {
 											...form.getHeaders()
@@ -5342,7 +5443,7 @@ exports.publications_tree_get = function(req, res, next) {
 			var axios = require('axios');
 			var https = require('https');
 	
-			const axios_instance = axios.create({
+			var axios_instance = axios.create({
 				httpsAgent: new https.Agent({  
 				  rejectUnauthorized: false
 				})
@@ -6547,14 +6648,33 @@ exports.data_get_neon_site_summary = function(req, res, next) {
 			var url = "https://www.neonscience.org/field-sites/field-sites-map/" + site;
 			console.log('Retrieving url: ' + url)		
 			//html = retus(url, {'responseType': 'text'});
-			var request = require("request");
 
-			request({uri: url}, function(error, response, body) {
+			var axios_instance = axios.create({
+				httpsAgent: new https.Agent({  
+				  rejectUnauthorized: false
+				})
+			});
+
+			axios_instance({
+				url: url,
+			}).then(function(response) {
+				var body = response.data;
 				console.log(error);
 				html = body;
 				ct_cache.put('data_neon_html_' + site, html, cache_time_24);
 				data_get_neon_site_summary_process_html(site, res);	
+			}).catch(function (err) {
+				console.log('err', err);
 			});
+
+			// var request = require("request");
+
+			// request({uri: url}, function(error, response, body) {
+			// 	console.log(error);
+			// 	html = body;
+			// 	ct_cache.put('data_neon_html_' + site, html, cache_time_24);
+			// 	data_get_neon_site_summary_process_html(site, res);	
+			// });
 			
 
 		}
