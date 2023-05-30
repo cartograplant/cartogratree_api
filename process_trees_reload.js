@@ -3,6 +3,11 @@ async function process_trees_reload() {
     // console.log('Clear the cache');
     // ct_cache.clear();
     //refresh all dependent views
+    var fs = require('fs');
+    fs.unlink('refresh_views_log.txt', function (err) {
+        console.log(err);
+    });
+    
 
     var check_refresh_views_promise_response = await new Promise(function(resolve,reject) {
         query ("SELECT pid, age(clock_timestamp(), query_start), usename, query " +
@@ -41,6 +46,7 @@ async function process_trees_reload() {
                     if (view_names.includes(query_spaced_parts[4])) {
                         console.log('REFRESH views query already running:' + query_running);
                         console.log('Will not run a reload until those queries complete');
+                        write_log('Reload already in progress. Aborting new reload call.');
                         reject('rejected');
                     }
                 }
@@ -54,11 +60,13 @@ async function process_trees_reload() {
             query ("REFRESH MATERIALIZED VIEW CONCURRENTLY chado.ct_view", [], function (err, rows, result) {
                 if (err) {
                     console.log(err);
-                    reject('error occurred');                
+                    write_log('ERROR: chado.ct_view could not be refreshed.'); 
+                    reject('error occurred');               
                     // res.status(400);
                     // return;
                 }
                 console.log('chado.ct_view refresh completed');
+                write_log('chado.ct_view refresh completed.' + JSON.stringify(result)); 
                 resolve('completed');
             });        
         });
@@ -67,11 +75,13 @@ async function process_trees_reload() {
             query ("REFRESH MATERIALIZED VIEW CONCURRENTLY chado.ct_trees_treegenes_dryad", [], function (err, rows, result) {
                 if (err) {
                     console.log(err);
+                    write_log('ERROR: chado.ct_trees_treegenes_dryad could not be refreshed.');
                     reject('error occurred');
                     // res.status(400);
                     // return;
                 }
                 console.log('chado.ct_trees_treegenes_dryad refresh completed');
+                write_log('chado.ct_trees_treegenes_dryad refresh completed.' + JSON.stringify(result));
                 resolve('completed');
             });        
         });
@@ -80,11 +90,13 @@ async function process_trees_reload() {
             query ("REFRESH MATERIALIZED VIEW CONCURRENTLY ct_trees_all_view", [], function (err, rows, result) {
                 if (err) {
                     console.log(err);
+                    write_log('ERROR: ct_trees_all_view could not be refreshed.');
                     reject('error occurred');
                     // res.status(400);
                     // return;
                 }
                 console.log('ct_trees_all_view refresh completed');
+                write_log('ct_trees_all_view refresh completed.' + JSON.stringify(result));
                 resolve('completed');
             });        
         });
@@ -94,24 +106,28 @@ async function process_trees_reload() {
             query ("REFRESH MATERIALIZED VIEW CONCURRENTLY ct_trees", [], function (err, rows, result) {
                 if (err) {
                     console.log(err);
+                    write_log('ERROR: ct_trees could not be refreshed.');
                     reject('error occurred');
                     // res.status(400);
                     // return;
                 }
                 console.log('ct_trees refresh completed');
+                write_log('ct_trees refresh completed.' + JSON.stringify(result));
                 resolve('completed');
-            });        
+            });
         });
 
         var tpps_study_summary_promise_response = await new Promise(function(resolve,reject) {
             query ("REFRESH MATERIALIZED VIEW CONCURRENTLY chado.tpps_study_summary", [], function (err, rows, result) {
                 if (err) {
                     console.log(err);
+                    write_log('ERROR: chado.tpps_study_summary could not be refreshed.');
                     reject('error occurred');
                     // res.status(400);
                     // return;
                 }
                 console.log('chado.tpps_study_summary refresh completed');
+                write_log('chado.tpps_study_summary refresh completed.' + JSON.stringify(result));
                 resolve('completed');
             });        
         }); 
@@ -120,11 +136,13 @@ async function process_trees_reload() {
             query ("REFRESH MATERIALIZED VIEW CONCURRENTLY chado.new_geno_view", [], function (err, rows, result) {
                 if (err) {
                     console.log(err);
+                    write_log('ERROR: chado.new_geno_view could not be refreshed.');
                     reject('error occurred');
                     // res.status(400);
                     // return;
                 }
                 console.log('chado.new_geno_view refresh completed');
+                write_log('chado.new_geno_view refresh completed.' + JSON.stringify(result));
                 resolve('completed');
             });        
         }); 
@@ -133,11 +151,13 @@ async function process_trees_reload() {
             query ("REFRESH MATERIALIZED VIEW CONCURRENTLY chado.geno_view", [], function (err, rows, result) {
                 if (err) {
                     console.log(err);
+                    write_log('ERROR: chado.geno_view could not be refreshed.');
                     reject('error occurred');
                     // res.status(400);
                     // return;
                 }
                 console.log('chado.geno_view refresh completed');
+                write_log('chado.geno_view refresh completed.' + JSON.stringify(result));
                 resolve('completed');
             });        
         }); 
@@ -146,11 +166,13 @@ async function process_trees_reload() {
             query ("REFRESH MATERIALIZED VIEW CONCURRENTLY chado.plusgeno_view", [], function (err, rows, result) {
                 if (err) {
                     console.log(err);
+                    write_log('ERROR: chado.plusgeno_view could not be refrshed.');
                     reject('error occurred');
                     // res.status(400);
                     // return;
                 }
                 console.log('chado.plusgeno_view refresh completed');
+                write_log('chado.plusgeno_view refresh completed.' + JSON.stringify(result));
                 resolve('completed');
             }); 
         });
@@ -159,11 +181,13 @@ async function process_trees_reload() {
             query ("REFRESH MATERIALIZED VIEW CONCURRENTLY chado.new_pheno_view", [], function (err, rows, result) {
                 if (err) {
                     console.log(err);
+                    write_log('ERROR: chado.new_pheno_view could not be refreshed.');
                     reject('error occurred');
                     // res.status(400);
                     // return;
                 }
                 console.log('chado.new_pheno_view refresh completed');
+                write_log('chado.new_pheno_view refresh completed.' + JSON.stringify(result));
                 resolve('completed');
             }); 
         });  
@@ -477,5 +501,13 @@ async function process_trees_reload() {
         });
     });
     */
+}
+
+async function write_log(str) {
+    var fs = require('fs');
+    fs.appendFile('refresh_views_log.txt', str + "\n", function (err) {
+        if (err) throw err;
+        console.log('Saved!');
+    });
 }
 process_trees_reload();

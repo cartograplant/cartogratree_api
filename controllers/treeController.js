@@ -3392,13 +3392,16 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 exports.species_count = function(req, res, next) {
 	var filter = req.query.filter;
 	var source_id = req.query.source_id;
-	console.log(filter);
 	console.log(source_id);
 	//make sure to also cache the query if possible
 	if(filter == "") {
 		filter = "(1 = 1)";
 	}
+
 	var query_str = "SELECT DISTINCT species as species FROM ct_trees WHERE " + filter + " AND source_id = " + source_id;
+
+	
+	// DEPRECATED
 	//var query_str = "SELECT COUNT(*) as tree_count FROM (" + sub_query + ") AS TABLE1;";
 	console.log(query_str);
 	var species_arr = [];
@@ -4131,10 +4134,16 @@ exports.dryad_consolidate_trees_from_treegenes = async function(req, res, next) 
 						//console.log(rows[i]);
 					}
 				}
-				pg_n_client.end();
 			}
 			catch(err) {
 				console.log(err);
+			}
+			// Try to close the connection
+			try {
+				pg_n_client.end();
+			}
+			catch (err) {
+
 			}
 		},1000);
 		
@@ -4209,7 +4218,7 @@ exports.treesnap_consolidate_subkingdoms = async function(req, res, next) {
 				  console.log('Saved!');
 				});
 				species_without_organismprop_subkingdom_data = "";
-
+				pg_n_client.end();
 			}
 			catch(err) {
 				console.log(err);
@@ -5116,7 +5125,7 @@ exports.genotypes_tree_get = function(req, res, next) {
 		var key = tree_id + "_genotype";
 		var cached_val = ct_cache.get(key);
 		if (cached_val == null) {
-			query ("SELECT * FROM chado.new_geno_view WHERE tree_acc LIKE $1 LIMIT 16;", [tree_id + '%'], function (err, rows, result) {
+			query ("SELECT * FROM chado.new_geno_view WHERE tree_acc LIKE $1 LIMIT 16;", [tree_id], function (err, rows, result) {
 				if (err) {
 					console.log(err);
 					res.status(400);
@@ -5588,6 +5597,8 @@ function build_tree_query_str(query_conditions, sources) {
 	*/
 	return query_str;
 }
+
+
 
 /**
  * Receives a json object which outlines the queries desired by the user, and creates a sql query out of it after parsing
