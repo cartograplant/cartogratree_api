@@ -3499,7 +3499,11 @@ exports.species_count = function(req, res, next) {
 	if(filter == "") {
 		filter = "(1 = 1)";
 	}
+	
 	var query_str = "SELECT DISTINCT species as species FROM ct_trees WHERE " + filter + " AND source_id = " + source_id;
+
+
+	// DEPRECATED
 	//var query_str = "SELECT COUNT(*) as tree_count FROM (" + sub_query + ") AS TABLE1;";
 	console.log(query_str);
 	var species_arr = [];
@@ -4204,6 +4208,7 @@ exports.dryad_consolidate_trees_from_treegenes = async function(req, res, next) 
 				}			
 			});
 		*/	
+		// TODO: Upgraded this function to not use setTimeout
 		setTimeout(function() {
 			var pg_n_client = new pg_native_client();
 			try {
@@ -4232,11 +4237,17 @@ exports.dryad_consolidate_trees_from_treegenes = async function(req, res, next) 
 						//console.log(rows[i]);
 					}
 				}
-				pg_n_client.end();
 			}
 			catch(err) {
 				console.log(err);
 			}
+			// Try to close the connection
+			try {
+				pg_n_client.end();
+			}
+			catch (err) {
+
+			}			
 		},1000);
 		
 		res.status(200).json("success");
@@ -4310,7 +4321,7 @@ exports.treesnap_consolidate_subkingdoms = async function(req, res, next) {
 				  console.log('Saved!');
 				});
 				species_without_organismprop_subkingdom_data = "";
-
+				pg_n_client.end();
 			}
 			catch(err) {
 				console.log(err);
@@ -5217,7 +5228,7 @@ exports.genotypes_tree_get = function(req, res, next) {
 		var key = tree_id + "_genotype";
 		var cached_val = ct_cache.get(key);
 		if (cached_val == null) {
-			query ("SELECT * FROM chado.new_geno_view WHERE tree_acc LIKE $1 LIMIT 16;", [tree_id + '%'], function (err, rows, result) {
+			query ("SELECT * FROM chado.new_geno_view WHERE tree_acc LIKE $1 LIMIT 16;", [tree_id], function (err, rows, result) {
 				if (err) {
 					console.log(err);
 					res.status(400);
