@@ -1,13 +1,31 @@
 const { PerformanceObserver, performance } = require('perf_hooks');
 const config = require('./config');
 const query = require("./query");
+const { Pool, Client } = require("pg");
 const ct_cache = require("memory-cache");
 var pg_native_client = require('pg-native');
 const cache_time_24 = 24*60*60*1000;
+const fs = require('fs');
+const pool = new Pool({
+	host: config.conf_bienv4.host,
+	port: config.conf_bienv4.post,
+	database: config.conf_bienv4.database,
+	user: config.conf_bienv4.user,
+	password: config.conf_bienv4.password, 
+});
 
-function perform_bienv4_linkedwithtganddryad_import() {
+const pool_tg = new Pool({
+	host: config.conf.host,
+	port: config.conf.port,
+	database: config.conf.database,
+	user: config.conf.user,
+	password: config.conf.password, 
+});
+
+
+async function perform_bienv4_linkedwithtganddryad_import() {
 	//query("DELETE FROM ct_trees WHERE source_id = 3;", [], function (err, rows, result) {
-	query("SELECT * FROM ct_trees_bien LIMIT 1;", [], function (err, rows, result) {
+	query("SELECT * FROM ct_trees_bien LIMIT 1;", [], async function (err, rows, result) {
 			if (err) {
 				console.log(err);
 				//res.status(400);
@@ -18,8 +36,9 @@ function perform_bienv4_linkedwithtganddryad_import() {
 				//Get all species from TreeGenes to use for searching
 				var pg_n_client_tg = new pg_native_client(); //Connect to TreeGenes Database server
 				pg_n_client_tg.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
-				var rows = pg_n_client_tg.querySync("SELECT distinct(species) as species FROM (SELECT * FROM ct_trees_treegenes UNION SELECT * FROM ct_trees_dryad) AS TABLE1");
-
+				// var rows = pg_n_client_tg.querySync("SELECT distinct(species) as species FROM (SELECT * FROM ct_trees_treegenes UNION SELECT * FROM ct_trees_dryad) AS TABLE1");
+				var rows = pg_n_client_tg.querySync("SELECT distinct(species) as species FROM (SELECT DISTINCT ON(uniquename) * FROM public.ct_trees_all_view WHERE (source_id = 0 OR source_id = 2)) AS TABLE1");
+				pg_n_client_tg.end();
 				//semi global variables
 				var tree_count_invalid = 0;
 				var tree_count_valid = 0;
@@ -36,11 +55,11 @@ function perform_bienv4_linkedwithtganddryad_import() {
 					//each genus record
 					//continue to get data from BIENv4
 					
-					var pg_n_client_bienv4 = new pg_native_client();
+					// var pg_n_client_bienv4 = new pg_native_client();
 					try {
 						
 						console.log('[BIENv4 Force Reload] Connecting to BIENv4 public database server');
-						pg_n_client_bienv4.connectSync('postgresql://' + config.conf_bienv4.user + ':' + config.conf_bienv4.password + '@' + config.conf_bienv4.host + ':' + config.conf_bienv4.port + '/' + config.conf_bienv4.database + '');
+						// pg_n_client_bienv4.connectSync('postgresql://' + config.conf_bienv4.user + ':' + config.conf_bienv4.password + '@' + config.conf_bienv4.host + ':' + config.conf_bienv4.port + '/' + config.conf_bienv4.database + '');
 						/*
 						pg_n_client.querySync("set datestyle='ISO';");
 						pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
@@ -48,8 +67,13 @@ function perform_bienv4_linkedwithtganddryad_import() {
 						pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
 						*/
 						
-						var rows_bien = pg_n_client_bienv4.querySync("SELECT COUNT(*) as c FROM view_full_occurrence_individual WHERE scrubbed_species_binomial = '" + species_original + "';");
+						// var rows_bien = pg_n_client_bienv4.querySync("SELECT COUNT(*) as c FROM view_full_occurrence_individual WHERE scrubbed_species_binomial = '" + species_original + "';");
+						var client = await pool.connect();
+						const result = await client.query("SELECT COUNT(*) as c FROM view_full_occurrence_individual WHERE scrubbed_species_binomial = '" + species_original + "';");
+						client.release();
 						//console.log('Found ' + rows_bien.length + ' for ' + genus);
+						var rows_bien = result.rows;
+						console.log('Rows count: ' + rows_bien.length);
 						if(rows_bien.length > 0) {
 							for(j=0; j<rows_bien.length; j++) {
 								var c = rows_bien[j].c;
@@ -57,7 +81,12 @@ function perform_bienv4_linkedwithtganddryad_import() {
 								console.log("[BIENv4 Force Reload] Importing into ct_trees_bien table. This could take a while!");
 
 								//Remember to use specific rows to ease up network data download
-								var rows_bien_trees_rows = pg_n_client_bienv4.querySync("SELECT taxonobservation_id, scrubbed_species_binomial, scrubbed_genus, scrubbed_family, higher_plant_group, latitude, longitude FROM view_full_occurrence_individual WHERE scrubbed_species_binomial = '" + species_original + "';");
+								// var rows_bien_trees_rows = pg_n_client_bienv4.querySync("SELECT taxonobservation_id, scrubbed_species_binomial, scrubbed_genus, scrubbed_family, higher_plant_group, latitude, longitude FROM view_full_occurrence_individual WHERE scrubbed_species_binomial = '" + species_original + "';");
+								var client = await pool.connect();
+								var rows_bien_trees_rows_results = await client.query("SELECT taxonobservation_id, scrubbed_species_binomial, scrubbed_genus, scrubbed_family, higher_plant_group, latitude, longitude FROM view_full_occurrence_individual WHERE scrubbed_species_binomial = '" + species_original + "';");
+								client.release();
+								var rows_bien_trees_rows = rows_bien_trees_rows_results.rows;
+								console.log('Rows count: ' + rows_bien_trees_rows.length);
 								for(k=0; k<rows_bien_trees_rows.length; k++) {
 									var uniquename = 'bien.' + rows_bien_trees_rows[k].taxonobservation_id;
 									var species = rows_bien_trees_rows[k].scrubbed_species_binomial;
@@ -81,7 +110,13 @@ function perform_bienv4_linkedwithtganddryad_import() {
 										if(subkingdom == 'flowering') {
 											subkingdom = 'angiosperm';
 										}
-										pg_n_client_tg.querySync("INSERT INTO ct_trees_bien (uniquename, species, genus, family, subkingdom, latitude, longitude, source_id, icon_type) VALUES('" + uniquename + "','" + species + "','" + genus + "','" + family + "','" + subkingdom + "'," + latitude + "," + longitude +"," + source_id + "," + icon_type + ") ON CONFLICT(uniquename) DO NOTHING;");
+										// pg_n_client_tg.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+										// pg_n_client_tg.querySync("INSERT INTO ct_trees_bien (uniquename, species, genus, family, subkingdom, latitude, longitude, source_id, icon_type) VALUES('" + uniquename + "','" + species + "','" + genus + "','" + family + "','" + subkingdom + "'," + latitude + "," + longitude +"," + source_id + "," + icon_type + ") ON CONFLICT(uniquename) DO NOTHING;");
+										// pg_n_client_tg.end();
+
+										var client_tg = await pool_tg.connect()
+										await client_tg.query("INSERT INTO ct_trees_bien (uniquename, species, genus, family, subkingdom, latitude, longitude, source_id, icon_type) VALUES('" + uniquename + "','" + species + "','" + genus + "','" + family + "','" + subkingdom + "'," + latitude + "," + longitude +"," + source_id + "," + icon_type + ") ON CONFLICT(uniquename) DO NOTHING;");
+										client_tg.release();																			
 										
 										if(k % 1000 == 0) {
 											console.log("[BIENv4 Force Reload] PROGRESS - " + k + " of " + rows_bien_trees_rows.length + " inserted [" + species + "]");
@@ -102,11 +137,11 @@ function perform_bienv4_linkedwithtganddryad_import() {
 										*/	
 									}
 								}
-								
 							}
+							rows_bien_trees_rows_results = []; // empty it
 						}
 						console.log('[BIENv4 Force Reload] Disconnected from BIENv4 public database server');
-						pg_n_client_bienv4.end();
+						// pg_n_client_bienv4.end();
 					}
 					catch(err) {
 						console.log(err);
@@ -122,10 +157,11 @@ function perform_bienv4_linkedwithtganddryad_import() {
 				console.log('[BIENv4 Force Reload] Import completed.');
 				var t1 = performance.now();
 				console.log("[BIENv4 Force Reload] Elapsed time: " + ((t1 - t0)/1000) + " seconds.");
-				pg_n_client_tg.end(); //Disconnect from TreeGenes database server
+				// pg_n_client_tg.end(); //Disconnect from TreeGenes database server
 
 			}
-			
+			pool.end();
+			pool_tg.end();
 	});
 }
 

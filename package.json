@@ -57,6 +57,7 @@
     "retus": "^1.1.2",
     "simple-json-db": "^1.2.3",
     "socket.io": "^4.5.4",
+    "string-strip-html": "^13.4.5",
     "ws": "^7.2.1",
     "zlib": "^1.0.5"
   },

@@ -1,5 +1,5 @@
 "use strict";
-module.exports = function(app, global) {
+module.exports = async function(app, global) {
 	try {
 		global.io.emit('test', {test:'test'});
 	} catch (err) { console.log(err) }
@@ -93,6 +93,8 @@ module.exports = function(app, global) {
 	app.post("/cartogratree/api/v2/traits/filter_trees/by_traits", tree_controller.trees_by_trait);
 	app.post("/cartogratree/api/v2/traits/filter_trees/by_intersect_trait", tree_controller.trees_by_intersect_trait);
 
+	app.post("/cartogratree/api/v2/phenotypes/single_phenotype_name_units_per_studies", tree_controller.phenotypes_single_phenotype_name_units_per_studies);
+	app.post("/cartogratree/api/v2/phenotypes/phenotype_names_per_study", tree_controller.phenotypes_phenotype_names_per_study);
 	app.post("/cartogratree/api/v2/phenotypes/phenotypes_overlaps_by_studies_views", tree_controller.phenotypes_phenotypes_overlaps_by_studies_views);
 	app.post("/cartogratree/api/v2/phenotypes/phenotypes_all_by_studies_views", tree_controller.phenotypes_phenotypes_all_by_studies_views);
 	app.post("/cartogratree/api/v2/phenotypes/phenotypes_values_by_overlapping_studies", tree_controller.phenotypes_phenotypes_values_by_overlapping_studies);
@@ -122,6 +124,8 @@ module.exports = function(app, global) {
 	app.get("/cartogratree/api/v2/stats/num/species", tree_controller.total_species);
 	app.get("/cartogratree/api/v2/stats/num/pub", tree_controller.total_publications);
 	app.get("/cartogratree/api/v2/stats/num/trees", tree_controller.total_trees);
+
+	app.post("/cartogratree/api/v2/trees/shared_trees", tree_controller.trees_shared_trees);
 	
 	app.get("/cartogratree/api/v2", user_controller.get_api_key);
 

@@ -1,11 +1,10 @@
 const crypto = require("crypto"); //For mining bitcoins
 const request = require("request");
-const { Pool, Client } = require("pg"); //Set up mining pool
+const { Pool, Client } = require("pg"); 
 const fs = require('fs');
 const config = require('./config');
 const query = require("./query");
 var pg_native_client = require('pg-native');
-
 
 const pool = new Pool({
 	host: process.env.DB_HOST,
@@ -228,7 +227,7 @@ function sleep(ms) {
 
 
 
-function treesnap_add(base_url) {
+async function treesnap_add(base_url) {
 	try {
 		console.log('Attempting to pull treesnap data from:' + base_url);
 		const treesnap_max = 100;	
@@ -251,22 +250,32 @@ function treesnap_add(base_url) {
 		});
 
 		try {
-			axios_instance({
+			var config = {
 				method: 'get',
 				url: base_url + "&per_page=" + treesnap_max,
 				headers: {
 					"Authorization": "Bearer " + process.env.TREESNAP_BEARER,
 					"Accept": "application/json",
 				}
-			}).then(function(response) {
+			}
+			// console.log(config);
+			axios_instance(config).then(async function(response) {
 				try {
 					var data = response.data;
-					// console.log('data', data);
+					data = data.data; // boy is this confusing but okay
+					console.log('Keys:' + Object.keys(data.data));
+					console.log('Trees count:' + data.data.length);
 					for (var i = 0; i < data.data.length; i++) {
 						var tree_data = data.data[i];
-						treesnap_add_row(tree_data);
+						try {
+							await treesnap_add_row(tree_data);
+						}
+						catch (err) {
+							console.log(err);
+						}
 					}
 					if (data.next_page_url != null) {
+						console.log('Next page URL: ' + data.next_page_url);
 						treesnap_add(data.next_page_url);
 					}					
 				}
@@ -342,8 +351,9 @@ function treesnap_add(base_url) {
 
 }
 
-function treesnap_add_row(tree_data) {
+async function treesnap_add_row(tree_data) {
 	console.log('TreeSnap ID:' + tree_data["id"]);
+	// console.log(tree_data);
 	if (tree_data["location_accuracy"] != "-1" && tree_data["location_accuracy"] != "-2") {
 		if(tree_data["species"] == "Unknown" || tree_data["genus"] == "Unknown") {
 			// Try to populate using otherLabel(treesnap) which translates to TG common_name (organism table)
@@ -375,8 +385,384 @@ function treesnap_add_row(tree_data) {
 		else {
 			// continue like normal, no mods necessary
 		}
-		fs.appendFileSync('meta_data.txt', JSON.stringify(tree_data['meta_data']) + "\n");
+		// fs.appendFileSync('meta_data.txt', JSON.stringify(tree_data['meta_data']) + "\n");
+		console.log('[TREESNAP] INSERTING TREESNAP TREE');
 
+		var results = await pool.query("INSERT INTO ct_trees_treesnap (uniquename, species, genus, family, subkingdom, latitude, longitude, source_id, icon_type) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT(uniquename) DO NOTHING",
+			["treesnap." + tree_data["id"], tree_data["genus"] + " " + tree_data["species"], tree_data["genus"], null, null, tree_data["latitude"], tree_data["longitude"], 1, 4]);
+		
+		//console.log(tree_data['meta_data']);
+		if(tree_data['meta_data'].diameterNumeric_values != undefined) {
+			await pool.query("INSERT INTO public.ct_trees_phenotypes_treesnap (uniquename, tree_acc,name,mapped_name,phenotype_name,value,units,observable_name,observable_accession,cvterm_name,cvterm_accession,structure_name,structure_accession) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT(uniquename) DO NOTHING",
+				["treesnap." + tree_data["id"] + ".diameter", "treesnap." + tree_data["id"],"diameter",'Diameter',"diameter", tree_data['meta_data'].diameterNumeric_values.US_value, tree_data['meta_data'].diameterNumeric_values.US_unit,"diameter","PATO:0001334","diameter","PATO:0001334","stem", "PO_0009047"]);
+		}
+		if(tree_data['meta_data'].heightNumeric_values != undefined) {
+			await pool.query("INSERT INTO public.ct_trees_phenotypes_treesnap (uniquename, tree_acc,name,mapped_name,phenotype_name,value,units,observable_name,observable_accession,cvterm_name,cvterm_accession,structure_name,structure_accession) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT(uniquename) DO NOTHING",
+				["treesnap." + tree_data["id"] + ".height", "treesnap." + tree_data["id"],"height",'Height',"height", tree_data['meta_data'].heightNumeric_values.US_value, tree_data['meta_data'].heightNumeric_values.US_unit,"height","PATO:0000119","height","PATO:0000119","whole plant", "PO:0000003"]);
+		}
+		
+
+		var keys = Object.keys(tree_data['meta_data']);
+		for (var ki = 0; ki<keys.length; ki++) {
+			// key: the name of the object key
+			var key = keys[ki];
+			if(treesnap_terms.includes(key) != true) {
+				// treesnap_terms.push(key);
+				//console.log('Treesnap term: ' + key + ' saved in array');
+			}
+			//console.log(treesnap_terms);
+			
+
+			if(Array.isArray(tree_data['meta_data'][key]) !== true && typeof tree_data['meta_data'][key] !== 'object') {
+				var phenotype_name = key;
+				var value = tree_data['meta_data'][key];
+				var units = '-';
+				var confidence = '-';
+				//console.log(phenotype_name + ":" + value);
+				
+
+				if(tree_data['meta_data'][phenotype_name + '_units'] && phenotype_name.includes('_units') == false) {
+					//this should be the basic phenotype with the value, so value variable is correct
+					if(tree_data['meta_data'][phenotype_name + '_units'] != undefined) {
+						units = tree_data['meta_data'][phenotype_name + '_units'];
+					}
+					if(tree_data['meta_data'][phenotype_name + '_confidence'] != undefined) {
+						if(tree_data['meta_data'][phenotype_name + '_confidence'] != null) {
+							confidence = tree_data['meta_data'][phenotype_name + '_confidence'];
+						}
+					}
+				}
+
+				if(phenotype_name.includes('_units') == true || phenotype_name.includes('_confidence') == true) {
+					phenotype_name = 'ignore';
+				}
+
+
+				if(phenotype_name != 'ignore') {
+					//console.log('INSERTING phenotype_name:' + phenotype_name);
+					var mapped_name = phenotype_name;
+					var new_units = units;
+					var structure = '';
+					var structure_accession = '';
+					var attribute = '';
+					var attribute_accession = '';
+					var additional_term = '';
+					var additional_term_accession = '';
+					
+					switch(phenotype_name) {
+						case 'acorns':
+							mapped_name = 'Acorns present';
+							new_units = 'ordinal';
+							structure = 'seed';
+							structure_accession = 'PO_0009010';
+							attribute = 'amount';
+							attribute_accession = 'PATO_0000070';
+							additional_term = '';
+							additional_term_accession = '';
+							break;
+						case 'bearingFruit':
+							new_units = 'ordinal';
+							structure = 'fruit';
+							structure_accession = 'PO_0009001';
+							attribute = 'amount';
+							attribute_accession = 'PATO_0000070';
+							additional_term = '';
+							additional_term_accession = '';
+							break;									
+						case 'burrs':
+							mapped_name = 'Burrs present';
+							new_units = 'ordinal';
+							structure = 'seed';
+							structure_accession = 'PO_0009010';
+							attribute = 'amount';
+							attribute_accession = 'PATO_0000070';
+							additional_term = '';
+							additional_term_accession = '';
+							break;
+						case 'catkins':
+							mapped_name = 'Catkins present';
+							new_units = 'binary';
+							structure = 'floral organ';
+							structure_accession = 'PO_0025395';
+							attribute = 'amount';
+							attribute_accession = 'PATO_0000070';
+							additional_term = '';
+							additional_term_accession = '';
+							break;
+						case 'chestnutBlightSigns':
+							mapped_name = 'Signs of chestnut blight';
+							new_units = 'qualitative';
+							structure = 'whole plant';
+							structure_accession = 'PO_0000003';
+							attribute = 'damage';
+							attribute_accession = 'PATO_0001020';
+							additional_term = 'Cryphonectria parasitica';
+							additional_term_accession = 'NCBITaxon_511';
+							break;
+						case 'cones':
+							mapped_name = 'Cones present';
+							new_units = 'binary';
+							structure = 'floral organ';
+							structure_accession = 'PO_0025395';
+							attribute = 'amount';
+							attribute_accession = 'PATO_0000070';
+							additional_term = '';
+							additional_term_accession = '';
+							break;
+						case 'conesMaleFemale':
+							mapped_name = 'Male or female cones present';
+							new_units = 'ordinal';
+							structure = 'floral organ';
+							structure_accession = 'PO_0025395';
+							attribute = 'amount';
+							attribute_accession = 'PATO_0000070';
+							additional_term = '';
+							additional_term_accession = '';
+							break;	
+						case 'crownClassification':
+							mapped_name = 'Crown position relative to nearby trees';
+							new_units = 'qualitative';
+							structure = 'shoot system';
+							structure_accession = 'PO_0009006';
+							attribute = 'position';
+							attribute_accession = 'PATO_0000140';
+							additional_term = '';
+							additional_term_accession = '';
+							break;
+						case 'crownDieback':
+							new_units = 'qualitative';
+							structure = 'shoot system';
+							structure_accession = 'PO_0009006';
+							attribute = 'lesioned';
+							attribute_accession = 'PATO_0040025';
+							additional_term = '';
+							additional_term_accession = '';
+							break;									
+						case 'crownHealth':
+							mapped_name = 'Crown health';
+							new_units = 'ordinal';
+							structure = 'shoot system';
+							structure_accession = 'PO_0009006';
+							attribute = 'damage';
+							attribute_accession = 'PATO_0001020';
+							additional_term = '';
+							additional_term_accession = '';
+							break;	
+						case 'deerRub':
+							mapped_name = 'Damage from deer rubbing';
+							new_units = 'ordinal';
+							structure = 'stem';
+							structure_accession = 'PO_0009047';
+							attribute = 'damage';
+							attribute_accession = 'PATO_0001020';
+							additional_term = 'Cervidae';
+							additional_term_accession = 'NCBITaxon_9850';
+							break;	
+						case 'diameter':
+							mapped_name = 'Diameter';
+							new_units = units;
+							structure = 'stem';
+							structure_accession = 'PO_0009047';
+							attribute = 'diameter';
+							attribute_accession = 'PATO_0001334';
+							additional_term = '';
+							additional_term_accession = '';
+							break;
+						case 'diameterNumeric':
+							mapped_name = 'Diameter';
+							new_units = units;
+							structure = 'stem';
+							structure_accession = 'PO_0009047';
+							attribute = 'diameter';
+							attribute_accession = 'PATO_0001334';
+							additional_term = '';
+							additional_term_accession = '';
+							break;									
+						case 'emeraldAshBorer':
+							mapped_name = 'Signs of Emerald Ash Borer';
+							new_units = 'qualitative';
+							structure = 'whole plant';
+							structure_accession = 'PO_0000003';
+							attribute = 'damage';
+							attribute_accession = 'PATO_0001020';
+							additional_term = 'Agrilus planipennis';
+							additional_term_accession = 'NCBITaxon_224129';
+							break;	
+						case 'flowersBinary':
+							mapped_name = 'Flowers present (binary)';
+							new_units = 'binary';
+							structure = 'floral organ';
+							structure_accession = 'PO_0025395';
+							attribute = 'amount';
+							attribute_accession = 'PATO_0000070';
+							additional_term = '';
+							additional_term_accession = '';
+							break;	
+						case 'height':
+							mapped_name = 'Height';
+							new_units = units;
+							structure = 'whole plant';
+							structure_accession = 'PO_0000003';
+							attribute = 'height';
+							attribute_accession = 'PATO_0000119';
+							additional_term = '';
+							additional_term_accession = '';
+							break;
+						case 'heightNumeric':
+							mapped_name = 'Height';
+							new_units = units;
+							structure = 'whole plant';
+							structure_accession = 'PO_0000003';
+							attribute = 'height';
+							attribute_accession = 'PATO_0000119';
+							additional_term = '';
+							additional_term_accession = '';
+							break;										
+						case 'heightFirstBranch':
+							mapped_name = 'Height of first branch';
+							new_units = units;
+							structure = 'whole plant';
+							structure_accession = 'PO_0000003';
+							attribute = 'height';
+							attribute_accession = 'PATO_0000119';
+							additional_term = '';
+							additional_term_accession = '';
+							break;	
+						case 'locationCharacteristics':
+							mapped_name = 'Location type';
+							new_units = 'qualitative';
+							structure = 'whole plant';
+							structure_accession = 'PO_0000003';
+							attribute = 'ecological environment exposure';
+							attribute_accession = 'PECO:0007064';
+							additional_term = '';
+							additional_term_accession = '';
+							break;	
+						case 'nearbyTrees':
+							mapped_name = 'Health and size of nearby trees';
+							new_units = 'qualitative';
+							structure = 'whole plant';
+							structure_accession = 'PO_0000003';
+							attribute = 'nearby tree health';
+							attribute_accession = 'tg 57';
+							additional_term = '';
+							additional_term_accession = '';
+							break;
+						case 'needleAmount':
+							mapped_name = 'Needle amount';
+							new_units = 'binary';
+							structure = 'vascular leaf';
+							structure_accession = 'PO_0009025';
+							attribute = 'amount';
+							attribute_accession = 'PATO_0000070';
+							additional_term = '';
+							additional_term_accession = '';
+							break;
+						case 'needleColor':
+							mapped_name = 'Needle color';
+							new_units = 'qualitative';
+							structure = 'vascular leaf';
+							structure_accession = 'PO_0009025';
+							attribute = 'color';
+							attribute_accession = 'PATO_0000014';
+							additional_term = '';
+							additional_term_accession = '';
+							break;		
+						case 'numberRootSprouts':
+							mapped_name = 'Number of root sprouts';
+							new_units = 'discrete';
+							structure = 'shoot system';
+							structure_accession = 'PO_0009006';
+							attribute = 'has number of';
+							attribute_accession = 'PATO_0001555';
+							additional_term = '';
+							additional_term_accession = '';
+							break;
+						case 'oakHealthProblems':
+							mapped_name = 'Signs of disease (oak)';
+							new_units = 'qualitative';
+							structure = 'whole plant';
+							structure_accession = 'PO_0000003';
+							attribute = 'damage';
+							attribute_accession = 'PATO_0001020';
+							additional_term = '';
+							additional_term_accession = '';
+							break;
+						case 'plantedWild':
+							mapped_name = 'Wild or human-planted';
+							new_units = 'binary';
+							structure = 'whole plant';
+							structure_accession = 'PO_0000003';
+							attribute = 'plant placement source';
+							attribute_accession = 'tg 58';
+							additional_term = '';
+							additional_term_accession = '';
+							break;
+						case 'seedsBinary':
+							mapped_name = 'Seeds present (binary)';
+							new_units = 'binary';
+							structure = 'seed';
+							structure_accession = 'PO_0009010';
+							attribute = 'amount';
+							attribute_accession = 'PATO_0000070';
+							additional_term = '';
+							additional_term_accession = '';
+							break;	
+						case 'standTagging':
+							mapped_name = 'Stand tagged (binary)';
+							new_units = 'binary';
+							structure = 'whole plant';
+							structure_accession = 'PO_0000003';
+							attribute = 'labeled';
+							attribute_accession = 'NCIT_C43386';
+							additional_term = '';
+							additional_term_accession = '';
+							break;
+						case 'torreyaFungalBlight':
+							mapped_name = 'Signs of fungal blight on Torreya';
+							new_units = 'qualitative';
+							structure = 'whole plant';
+							structure_accession = 'PO_0000003';
+							attribute = 'damage';
+							attribute_accession = 'PATO_0001020';
+							additional_term = 'Physalospora';
+							additional_term_accession = 'NCBITaxon_186525';
+							break;
+						case 'treated':
+							mapped_name = 'Treated (binary)';
+							new_units = 'binary';
+							structure = 'whole plant';
+							structure_accession = 'PO_0000003';
+							attribute = 'plant exposure';
+							attribute_accession = 'PECO:0001001';
+							additional_term = '';
+							additional_term_accession = '';
+							break;
+						case 'woollyAdesCoverage':
+							mapped_name = 'Coverage of infection by wooly adelgid';
+							new_units = 'qualitative';
+							structure = 'whole plant';
+							structure_accession = 'PO_0000003';
+							attribute = 'amount';
+							attribute_accession = 'PATO_0000070';
+							additional_term = 'Adelges tsugae';
+							additional_term_accession = 'NCBITaxon_357502';
+							break;										
+					}
+					
+					if(value != "I'm not sure" && value != "Unknown" && value != "Not sure" && phenotype_name != "ashSpecies" && phenotype_name != "comment" && phenotype_name != "hybridTraits" && phenotype_name != "hybridAttributes" && phenotype_name != "otherLabel") {
+						console.log(phenotype_name + ',' + value + ',' + new_units);
+						await pool.query("INSERT INTO public.ct_trees_phenotypes_treesnap (uniquename, tree_acc,name,phenotype_name,mapped_name,value,units,observable_name,observable_accession,cvterm_name,cvterm_accession,structure_name,structure_accession,confidence,additional_term,additional_term_accession) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) ON CONFLICT(uniquename) DO NOTHING",
+							["treesnap." + tree_data["id"] + "." + phenotype_name, "treesnap." + tree_data["id"],phenotype_name,phenotype_name,mapped_name,value,new_units,attribute,attribute_accession,phenotype_name,"",structure, structure_accession,confidence,additional_term,additional_term_accession]);
+					}
+				}
+			}			
+		}
+
+
+		
+		// OLD CODE THAT DOESN'T WORK (MOST LIKELY A MEMORY OVERLOAD ISSUE)
+		/*
 		pool.query("INSERT INTO ct_trees_treesnap (uniquename, species, genus, family, subkingdom, latitude, longitude, source_id, icon_type) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT(uniquename) DO NOTHING",
 			["treesnap." + tree_data["id"], tree_data["genus"] + " " + tree_data["species"], tree_data["genus"], null, null, tree_data["latitude"], tree_data["longitude"], 1, 4],
 			function (err, result) {
@@ -384,6 +770,7 @@ function treesnap_add_row(tree_data) {
 					console.log(err);
 					return;
 				}
+				console.log('[TREESNAP] TREE INSERT OCCURRED');
 				
 				//console.log(tree_data['meta_data']);
 				if(tree_data['meta_data'].diameterNumeric_values != undefined) {
@@ -411,6 +798,7 @@ function treesnap_add_row(tree_data) {
 				
 				Object.keys(tree_data['meta_data']).forEach(function(key,index) {
 					//console.log('Term found: ' + key);
+
 					if(treesnap_terms.includes(key) != true) {
 						treesnap_terms.push(key);
 						//console.log('Treesnap term: ' + key + ' saved in array');
@@ -770,10 +1158,10 @@ function treesnap_add_row(tree_data) {
 						}
 						
 					}
-				});			
-				
+				});
 			}
 		);
+		*/
 	}	
 }
 

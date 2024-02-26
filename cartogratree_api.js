@@ -73,7 +73,7 @@ ON_DEATH(function(signal, err) {
   console.log('signal', signal);
   console.log('error', err);
 
-  fs.appendFile(__dirname + '/crash_report.txt', err, function (err) {
+  fs.appendFile(__dirname + '/crash_report.txt', signal + ' ' + err, function (err) {
 	if (err) throw err;
 	console.log('Crash Report saved!');
 	process.exit();
@@ -216,7 +216,9 @@ var logger = function(req, res, next) {
 app.use(logger);
 app.use(cors());
 app.use(responseTime());
-app.use(bodyParser.json());
+app.use(bodyParser.json({
+	limit: '100000kb'
+}));
 //app.use(bodyParser.urlencoded({extended: false}));
 
 app.set("json spaces", 0);
@@ -226,7 +228,7 @@ app.set("json spaces", 0);
 
 const server = require('http').createServer(app);
 const io = require('socket.io')(server, {
-	path: '/cartogratree/api/realtime'
+	path: '/cartogratree/api/realtime',
 });
 global['io'] = io;
 

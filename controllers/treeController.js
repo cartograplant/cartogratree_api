@@ -11,6 +11,8 @@ const query_bienv4 = require("./../query_bienv4"); //to cater for BIENv4 data
 var pg_native_client = require('pg-native');
 const { spawn } = require('child_process');
 const { fork } = require('child_process');
+// const { stripHtml } = require('string-strip-html'); // ESM module doesn't work with require
+
 const retus = require("retus");
 const { parse } = require("node-html-parser");
 //var pgsync = require('pg-sync');
@@ -474,6 +476,7 @@ var generateRandomDouble = function(min, max) {
 					}
 				}
 				else {
+					console.log(vcf_original_location);4
 					console.log('error', 'Could not find the VCF in the path specified. Critical error.')
 				}
 			}
@@ -525,8 +528,8 @@ var generateRandomDouble = function(min, max) {
 				snps_selected[snps[i]] = true;
 			}
 		}
-		console.log('SNPS SELECTED');
-		console.log(snps_selected);
+		// console.log('SNPS SELECTED');
+		// console.log(snps_selected);
 		// console.log('snps', JSON.stringify(snps))
 
 		// Delete the snps array to save memory
@@ -653,78 +656,86 @@ var generateRandomDouble = function(min, max) {
 						for(var i=0; i<all_vars.studies.length; i++) {
 							var study_accession = all_vars.studies[i];
 							console.log(study_accession);
-							var vcf_info_object = all_vars.study_vcf_processing[study_accession];
-		
-							all_vars.study_vcf_processing[study_accession]['vcf_filtered_location'] = __dirname + '/../store/' + all_vars.analysis_id + '_' + study_accession + '_filtered.vcf';
-							console.log(all_vars.study_vcf_processing[study_accession]['vcf_filtered_location']);
-		
-							if(fs.existsSync(all_vars.study_vcf_processing[study_accession]['vcf_filtered_location'])) {
-								fs.unlinkSync(all_vars.study_vcf_processing[study_accession]['vcf_filtered_location']);
-							}
-
-							
-							const exec = require('child_process').exec;
-							// code = execSync('node -v');
-							var cmd = "/usr/local/bin/vcftools --vcf " + vcf_info_object['vcf_filter_generated_location'] + " --stdout --recode --remove-filtered-all  > " + vcf_info_object['vcf_filtered_location'];
-							console.log('cmd', cmd);
-							perform_filtering_with_vcftools(cmd, vcf_info_object);
-							function perform_filtering_with_vcftools(cmd, vcf_info_object) {
-								var child = exec(cmd, function(error, stdout, stderr) {
-									if(error) {
-										console.log(error);
-										results['error'] = true;
-										// res.send(JSON.stringify(results));
-										return;
+							// if (study_accession != undefined) {
+								var vcf_info_object = all_vars.study_vcf_processing[study_accession];
+								console.log(vcf_info_object);
+								// if (vcf_info_object != undefined) {
+			
+									all_vars.study_vcf_processing[study_accession]['vcf_filtered_location'] = __dirname + '/../store/' + all_vars.analysis_id + '_' + study_accession + '_filtered.vcf';
+									console.log(all_vars.study_vcf_processing[study_accession]['vcf_filtered_location']);
+				
+									if(fs.existsSync(all_vars.study_vcf_processing[study_accession]['vcf_filtered_location'])) {
+										fs.unlinkSync(all_vars.study_vcf_processing[study_accession]['vcf_filtered_location']);
 									}
-							
-									console.log('New filtered VCF generated');
-			
-									// We have the filtered file and now we can upload it back to server
-									// Open file as a readable stream
-									const fileStream = fs.createReadStream(vcf_info_object['vcf_filtered_location']);
-			
-			
-									const form = new FormData();
-									// Pass file stream directly to form
-									form.append('galaxy_id', all_vars['galaxy_id']);
-									form.append('history_id', all_vars['history_id']);
-									form.append('file1', fileStream, 'AN' + all_vars.analysis_id + '_' + vcf_info_object['study'] + '_snps.vcf');
-							
-			
-									var url = all_vars.cartogratree_base_url + "/cartogratree_uianalysis/upload_file_to_history";
-									axios_instance.post(url, form, {
-										headers: {
-											...form.getHeaders()
-										},	
-										'maxContentLength': Infinity,
-										'maxBodyLength': Infinity						
-									}).then(function(response) {
-										console.log(response.data)
-										var resp_object = JSON.stringify(response.data);
-										all_vars.upload_history_files_count = all_vars.upload_history_files_count + 1;
-										checkIfUploadsCompleted();
-										// fs.unlink(all_vars.study_vcf_processing[study_accession]['vcf_filtered_location']);
-									})
-									.catch(function (error) {
-										console.log(error);
-										all_vars.upload_history_files_count = all_vars.upload_history_files_count + 1;
-										checkIfUploadsCompleted();
-										// fs.unlink(all_vars.study_vcf_processing[study_accession]['vcf_filtered_location']);
-									});
 
-									function checkIfUploadsCompleted() {
-										if(all_vars.upload_history_files_count == all_vars.vcf_files_count) {
-											console.log('Files finished uploading');
-											// clearInterval(check_if_files_uploaded_interval);
-											res.send(JSON.stringify({result: 'success'}));
-										}
+									
+									const exec = require('child_process').exec;
+									// code = execSync('node -v');
+									var cmd = "/usr/local/bin/vcftools --vcf " + vcf_info_object['vcf_filter_generated_location'] + " --stdout --recode --remove-filtered-all  > " + vcf_info_object['vcf_filtered_location'];
+									console.log('cmd', cmd);
+									perform_filtering_with_vcftools(cmd, vcf_info_object);
+									function perform_filtering_with_vcftools(cmd, vcf_info_object) {
+										var child = exec(cmd, function(error, stdout, stderr) {
+											if(error) {
+												console.log(error);
+												results['error'] = true;
+												// res.send(JSON.stringify(results));
+												return;
+											}
+									
+											console.log('New filtered VCF generated');
+											console.log('Attempting to upload filtered VCF file: ' + vcf_info_object['vcf_filtered_location']);
+					
+											// We have the filtered file and now we can upload it back to server
+											// Open file as a readable stream
+											const fileStream = fs.createReadStream(vcf_info_object['vcf_filtered_location']);
+					
+					
+											const form = new FormData();
+											// Pass file stream directly to form
+											form.append('galaxy_id', all_vars['galaxy_id']);
+											form.append('history_id', all_vars['history_id']);
+											form.append('file1', fileStream, 'AN' + all_vars.analysis_id + '_' + vcf_info_object['study'] + '_snps.vcf');
+									
+					
+											var url = all_vars.cartogratree_base_url + "/cartogratree_uianalysis/upload_file_to_history";
+											axios_instance.post(url, form, {
+												headers: {
+													...form.getHeaders()
+												},	
+												'maxContentLength': Infinity,
+												'maxBodyLength': Infinity						
+											}).then(function(response) {
+												console.log(response.data)
+												// var resp_object = JSON.stringify(response.data);
+												all_vars.upload_history_files_count = all_vars.upload_history_files_count + 1;
+												checkIfUploadsCompleted();
+												// fs.unlink(all_vars.study_vcf_processing[study_accession]['vcf_filtered_location']);
+											})
+											.catch(function (error) {
+												console.log('New filtered VCF error (in the function, not necessarily the filter file):');
+												// console.log(error);
+												console.log(error.response.data);
+												all_vars.upload_history_files_count = all_vars.upload_history_files_count + 1;
+												checkIfUploadsCompleted();
+												// fs.unlink(all_vars.study_vcf_processing[study_accession]['vcf_filtered_location']);
+											});
+
+											function checkIfUploadsCompleted() {
+												if(all_vars.upload_history_files_count == all_vars.vcf_files_count) {
+													console.log('Files finished uploading');
+													// clearInterval(check_if_files_uploaded_interval);
+													res.send(JSON.stringify({result: 'success'}));
+												}
+											}
+					
+											//exec("rm -f " + __dirname + '/../store/' + analysis_id + '_pca_phenotypes.csv');
+											//exec("rm -f " + __dirname + '/../store/' + analysis_id + '_pca_phenotypes.jpeg');
+											// res.send(JSON.stringify(results));
+										});
 									}
-			
-									//exec("rm -f " + __dirname + '/../store/' + analysis_id + '_pca_phenotypes.csv');
-									//exec("rm -f " + __dirname + '/../store/' + analysis_id + '_pca_phenotypes.jpeg');
-									// res.send(JSON.stringify(results));
-								});
-							}
+								// }
+							// }
 						}
 					}
 
@@ -849,7 +860,8 @@ var generateRandomDouble = function(min, max) {
 exports.genotypes_snps_get_tree_ids_by_analysis_id = function(req, res, next) {
 	try {
 		var analysis_id = req.body.analysis_id;
-		// console.log(req.body);
+		var studies = JSON.parse(req.body.studies);
+		console.log('req.body', req.body);
 		// Let us use query synchronized for procedural querying
 		var pg_n_client = new pg_native_client();
 
@@ -873,19 +885,28 @@ exports.genotypes_snps_get_tree_ids_by_analysis_id = function(req, res, next) {
 			var snps_arr = variable_data.split(',');
 			snps = snps.concat(snps_arr);
 		}
-		// console.log('snps', JSON.stringify(snps))
+		console.log('snps', JSON.stringify(snps))
 
 
 		var query_str = "";
-		query_str = "select distinct unnest(tree_accessions) from chado.tree_accessions_per_individual_marker where marker in(";
+		query_str = "SELECT * FROM (select distinct unnest(tree_accessions) as tree_accessions from chado.tree_accessions_per_individual_marker where marker in(";
 		for(var i=0; i<snps.length; i++) {
 			if(i > 0) {
 				query_str += ',';
 			}
 			query_str += "'" + snps[i] + "'";
 		}
-		query_str += ");"
-		// console.log(query_str);
+		query_str += ")) as table1 WHERE (";
+		// query_str += " AND (";
+		for(var i=0; i<studies.length; i++) {
+			if (i > 0) {
+				query_str += " OR ";
+			}
+			query_str += "tree_accessions::TEXT ILIKE '" + studies[i] + "%'";
+		}
+		query_str += ")";
+
+		console.log('query_str', query_str);
 
 		// SELECT av.uniquename, latitude, longitude FROM ct_trees_all_view av JOIN (
 		// 	SELECT uniquename FROM chado.stock_genotype sg LEFT JOIN chado.stock s ON sg.stock_id = 
@@ -899,6 +920,7 @@ exports.genotypes_snps_get_tree_ids_by_analysis_id = function(req, res, next) {
 		var rows = [];
 		if(snps.length > 0) {
 			rows = pg_n_client.querySync(query_str,[]);
+			console.log(rows);
 		}
 		pg_n_client.end();	
 		res.send(JSON.stringify(rows));
@@ -907,6 +929,51 @@ exports.genotypes_snps_get_tree_ids_by_analysis_id = function(req, res, next) {
 		console.log(err);
 		res.status(400).send('error:' + err);
 	}
+}
+
+/**
+ * This function should return the unit for a specific phenotype in the studies specified
+ * So basically you specify a phenotype_name and list of studies in an array
+ * and it will return rows that contains the units. This is used to determine if conversion
+ * is necessary in CartograPlant.
+ * @param {object} request - Request object
+ * @param {object} response - Response object
+ * @param {function} next - Next middleware function in the application"s request-response cycle   
+ */
+
+exports.phenotypes_single_phenotype_name_units_per_studies = function(req, res, next) {
+	console.log(req.body.studies);
+	console.log(req.body.phenotype_name);
+	var studies = [];
+	
+	if(req.body.studies != undefined) {
+		studies = JSON.parse(req.body.studies); // should be an array
+	}
+	console.log('IT CAME HERE');
+
+	var phenotype_name = req.body.phenotype_name;
+	console.log("Phenotype name:" + phenotype_name);
+
+	var query_str = "SELECT * FROM chado.phenotypes_and_units_by_study WHERE phenotype = ";
+	query_str += "$1 AND accession IN (";
+	console.log(query_str);
+	for(var i = 0; i<studies.length; i++) {
+		if (i > 0) {
+			query_str += ',';
+		}
+		query_str += "'" + studies[i] + "'";
+		
+	}
+	query_str += ");";
+	console.log(query_str);
+	query (query_str, [phenotype_name], function (err, rows, result) {
+		if (err) {
+			console.log(err);
+			res.status(400);
+			return undefined;
+		}
+		res.status(200).json(rows);
+	});
 }
 
 /**
@@ -1179,7 +1246,7 @@ exports.genotypes_snps_get_tree_ids_by_analysis_id = function(req, res, next) {
 								var cmd_custom_r_code = "Rscript " + __dirname + "/../popstruct_from_panel.R ";
 								cmd_custom_r_code += analysis_id + " ";
 								cmd_custom_r_code += population_count + " ";
-								cmd_custom_r_code += __dirname + "/../store/" + analysis_id + "_popstruct_plink.2.meanQ ";
+								cmd_custom_r_code += __dirname + "/../store/" + analysis_id + "_popstruct_plink." + k_value + ".meanQ ";
 								cmd_custom_r_code += __dirname + "/../store/" + analysis_id + "_popstruct_IDfamPanel.txt ";
 								cmd_custom_r_code += __dirname + "/../store/" + analysis_id + "_popstruct_PopPanel.txt";
 								var child_custom_r_code = exec(cmd_custom_r_code, function(error, stdout, stderr) {
@@ -1399,6 +1466,7 @@ exports.phenotypes_pca = function(req, res, next) {
       console.log(query_str);
       // Let us use query synchronized for procedural querying
       var pg_n_client = new pg_native_client();
+	  console.log('it came here 2');
 
       console.log('Connecting to database...');
       pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
@@ -1409,12 +1477,14 @@ exports.phenotypes_pca = function(req, res, next) {
       pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
       pg_n_client.querySync("SET bytea_output TO escape;");
       pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+	  console.log('it came here 3');
 
       var rows = pg_n_client.querySync(query_str,[]);
+	  console.log('it came here 4');
       rows_results = rows_results.concat(rows);
+	  console.log('it came here 5');
       // console.log('rows_results', JSON.stringify(rows_results));
       results['updated'] = true;
-
       // NOTE: ALWAYS REMEMBER TO CLOSE THE pg_n_client connection at the end!
       pg_n_client.end();	
     }
@@ -1495,14 +1565,15 @@ exports.phenotypes_pca = function(req, res, next) {
 
     // Now we have csv data - awesome
     // console.log(csv_data);
-	var fs = require('fs');
+	// var fs = require('fs');
+	console.log('Generating PCA CSV file');
 	fs.writeFile(__dirname + '/../store/' + analysis_id + '_pca_phenotypes.csv', csv_data, {flag: 'w'}, function (err) {
 		if (err) {
 			console.log(err);
 			return;
 		}
 		else {
-			
+			console.log('Generating PCA');
 			generate_pca();
 		}
 	});
@@ -1515,33 +1586,63 @@ exports.phenotypes_pca = function(req, res, next) {
 		// code = execSync('node -v');
 		var cmd = "Rscript " + __dirname + "/../pca_phenotypes.R " + __dirname + "/../store/ " + analysis_id;
 		console.log('cmd', cmd);
-		var child = exec(cmd, function(error, stdout, stderr) {
-			
-			if(error) {
-				console.log(error);
-				results['error'] = true;
-				res.send(JSON.stringify(results));
-				return;
-			}
+		console.log('it came here 10');
+		// var child = exec(cmd, function(error, stdout, stderr) {
+		// 	if(error) {
+		// 		console.log(error);
+		// 		results['error'] = true;
+		// 		res.send(JSON.stringify(results));
+		// 		return;
+		// 	}
+		// 	console.log('it came here 11');
+		// 	// console.log(JSON.stringify(stdout));
+		// 	// var lines = stdout.split("\n");
+		// 	// // var analysis_id = "";
+		// 	// for(var i=0; i<lines.length; i++) {
+		// 	// 	var line = lines[i];
+		// 	// 	console.log('line ' + i + ':' + line);
+		// 	// 	if(line.includes('analysis_id:')) {
+		// 	// 		var line_parts = line.split('analysis_id:');
+		// 	// 		console.log(JSON.stringify(line_parts));
+		// 	// 		//analysis_id = line_parts[1].replaceAll('"','');
+		// 	// 		break;
+		// 	// 	}
+		// 	// }
+		// 	// console.log('Analysis ID:' + analysis_id);
 
-			// console.log(JSON.stringify(stdout));
-			// var lines = stdout.split("\n");
-			// // var analysis_id = "";
-			// for(var i=0; i<lines.length; i++) {
-			// 	var line = lines[i];
-			// 	console.log('line ' + i + ':' + line);
-			// 	if(line.includes('analysis_id:')) {
-			// 		var line_parts = line.split('analysis_id:');
-			// 		console.log(JSON.stringify(line_parts));
-			// 		//analysis_id = line_parts[1].replaceAll('"','');
-			// 		break;
-			// 	}
-			// }
-			// console.log('Analysis ID:' + analysis_id);
+
+		// 	// console.log(JSON.stringify(stderr));
+
+		// 	try {
+		// 		var fs = require('fs');
+		// 		var data = fs.readFileSync(__dirname + '/../store/' + analysis_id + '_pca_phenotypes.jpeg');
+		// 		var data_base64 = Buffer.from(data).toString('base64');
+
+		// 		results['data_base64'] = data_base64;
+		// 		results['updated'] = true;
+
+		// 		exec("rm -f " + __dirname + '/../store/' + analysis_id + '_pca_phenotypes.csv');
+		// 		exec("rm -f " + __dirname + '/../store/' + analysis_id + '_pca_phenotypes.jpeg');
+		// 	}
+		// 	catch (err_pca_gen) {
+		// 		console.log(err_pca_gen);
+		// 	}
+		// 	res.send(JSON.stringify(results));
+		// });
 
 
-			// console.log(JSON.stringify(stderr));
+		// "Rscript " + __dirname + "/../pca_phenotypes.R " + __dirname + "/../store/ " + analysis_id;
+		const ls = spawn('Rscript', [__dirname + "/../pca_phenotypes.R", __dirname + "/../store/",analysis_id]);
 
+		ls.stdout.on('data', (data) => {
+		  // console.log(`stdout: ${data}`);
+		});
+		
+		ls.stderr.on('data', (data) => {
+		  // console.error(`stderr: ${data}`);
+		});
+		
+		ls.on('close', (code) => {
 			try {
 				var fs = require('fs');
 				var data = fs.readFileSync(__dirname + '/../store/' + analysis_id + '_pca_phenotypes.jpeg');
@@ -1557,7 +1658,8 @@ exports.phenotypes_pca = function(req, res, next) {
 				console.log(err_pca_gen);
 			}
 			res.send(JSON.stringify(results));
-		});
+		  // console.log(`child process exited with code ${code}`);
+		}); 
 	}
 
 
@@ -1934,6 +2036,40 @@ exports.environmental_get_unique_locations_from_treeids = function(req,res,next)
 		}
 		console.log(query_str);
 		query (query_str, [], function (err, rows, result) {
+			if (err) {
+				console.log(err);
+				res.status(400);
+				return;
+		}
+		//console.log(rows);
+
+		res.status(200).json(rows);
+		});
+	}
+	else {
+		var rows = [];
+		res.status(200).json(rows);
+	}
+ }
+
+ /**
+ * This should return phenotype_names per study
+ * @param {object} request - Request object
+ * @param {object} response - Response object
+ * @param {function} next - Next middleware function in the application"s request-response cycle   
+ */
+ exports.phenotypes_phenotype_names_per_study = function(req, res, next) {
+	console.log('phenotypes_phenotypes_overlaps_by_studies_views');
+	console.log(req.body.study);
+	var studies = [];
+	if(req.body.study != undefined) {
+		study = req.body.study; // should be string
+		
+	}
+	if(study.length > 0) {
+		var query_str = 'SELECT * FROM chado.phenotypes_and_units_by_study where accession LIKE $1';
+		console.log(query_str);
+		query (query_str, [study], function (err, rows, result) {
 			if (err) {
 				console.log(err);
 				res.status(400);
@@ -3724,194 +3860,7 @@ exports.popstruct_reload = function(req, res, next) {
 	}
 }
 
-/**
- * Clears the cache and refreshes the materialized views to able to view all the newly added trees to cartogratree based on tpps submissions
- * @param {object} request - Request object
- * @param {object} response - Response object
- * @param {function} next - Next middleware function in the application"s request-response cycle   
- */
- exports.trees_reload_old = function(req, res, next) {
-	//console.log('API SUPERUSER PASSWORD:' + config.conf.api_superuser_password);
-	if(config.conf.api_superuser_password == api_superuser_password) {
-		//utils.valid_api_key(api_key, res, function() {
-		//clear the cache
-		console.log('Clear the cache');
-		ct_cache.clear();
-		//refresh all dependent views
-		query ("REFRESH MATERIALIZED VIEW CONCURRENTLY chado.new_geno_view", [], function (err, rows, result) {
-			if (err) {
-				console.log(err);
-				res.status(400);
-				return;
-			}
-			console.log('chado.new_geno_view refresh completed');
-			query ("REFRESH MATERIALIZED VIEW CONCURRENTLY chado.geno_view", [], function (err, rows, result) {
-				if (err) {
-					console.log(err);
-					res.status(400);
-					return;
-				}
-				console.log('chado.geno_view refresh completed');			
-				query ("REFRESH MATERIALIZED VIEW CONCURRENTLY chado.plusgeno_view", [], function (err, rows, result) {
-					if (err) {
-						console.log(err);
-						res.status(400);
-						return;
-					}
-					console.log('chado.plusgeno_view refresh completed');
-					query ("REFRESH MATERIALIZED VIEW CONCURRENTLY chado.new_pheno_view", [], function (err, rows, result) {
-						if (err) {
-							console.log(err);
-							res.status(400);
-							return;
-						}	
-						console.log('chado.new_pheno_view refresh completed');
-						query ("REFRESH MATERIALIZED VIEW CONCURRENTLY chado.ct_view", [], function (err, rows, result) {
-							if (err) {
-								console.log(err);
-								res.status(400);
-								return;
-							}
-							console.log('chado.ct_view refresh completed');
 
-
-							console.log('Beginning refresh of ct_trees_treegenes_dryad...');
-							query ("REFRESH MATERIALIZED VIEW CONCURRENTLY chado.ct_trees_treegenes_dryad", [], function (err, rows, result) {
-								if (err) {
-									console.log(err);
-									res.status(400);
-									return;
-								}										
-								console.log('Beginning refresh of ct_trees_all_view...');
-								query ("REFRESH MATERIALIZED VIEW CONCURRENTLY ct_trees_all_view", [], function (err, rows, result) {
-									if (err) {
-										console.log(err);
-										res.status(400);
-										return;
-									}
-									console.log('ct_trees_all_view refresh completed');
-									query ("REFRESH MATERIALIZED VIEW CONCURRENTLY ct_trees", [], function (err, rows, result) {
-										if (err) {
-											console.log(err);
-											res.status(400);
-											return;
-										}
-										console.log("ct_trees refresh completed");
-										query ("REFRESH MATERIALIZED VIEW CONCURRENTLY chado.tpps_study_summary", [], function (err, rows, result) {
-											if (err) {
-												console.log(err);
-												res.status(400);
-												return;
-											}
-											console.log("tpps_study_summary refresh completed");
-											console.log('Clear the cache');
-											ct_cache.clear();	
-										});
-									});
-								});	
-							});
-							
-
-
-							// WE NEED TO DEPRECATE THE CODE BELOW SINCE THE UNDERLYING FUNCTION utils.insert_new_trees
-							// is trying to insert trees into ct_trees_treegenes which no longer exists as a table.
-							// so this code won't work anymore!
-							// NOTED by Risharde Ramnath 5/5/2022
-
-							//add new trees to table
-							// 	query ("SELECT * FROM chado.ct_view", [], function (err, rows, result) {
-							// 		if (err) {
-							// 			console.log(err);
-							// 			res.status(400);
-							// 			return;
-							// 		}
-							// 		console.log('chado.ct_view inserting new trees...');
-							// 		console.log('ROWS:' + rows.length);
-							// 		try {
-							// 			utils.insert_new_trees(res, rows);
-							// 		}
-							// 		catch (err) {
-							// 			console.log(err);
-							// 		}
-							// 		console.log('chado.ct_view finished inserting new trees');
-							// 		//refresh the view that houses all the trees and their respective data
-							// 		//THIS IS DUE TO CALLBACK - WE NEED TO WAIT TO MAKE SURE IT PROCESSES CORRECTLY
-							// 		// var wait_time = rows.length * 3; //rows by 3ms
-							// 		// console.log('Waiting ' + (wait_time / 1000) + ' seconds before refreshing ct_trees_all_view ...');
-							// 		// setTimeout(function() {
-							// 		// 	console.log('Beginning refresh of ct_trees_treegenes_dryad...');
-							// 		// 	query ("REFRESH MATERIALIZED VIEW chado.ct_trees_treegenes_dryad", [], function (err, rows, result) {
-							// 		// 		if (err) {
-							// 		// 			console.log(err);
-							// 		// 			res.status(400);
-							// 		// 			return;
-							// 		// 		}										
-							// 		// 		console.log('Beginning refresh of ct_trees_all_view...');
-							// 		// 		query ("REFRESH MATERIALIZED VIEW ct_trees_all_view", [], function (err, rows, result) {
-							// 		// 			if (err) {
-							// 		// 				console.log(err);
-							// 		// 				res.status(400);
-							// 		// 				return;
-							// 		// 			}
-							// 		// 			console.log('ct_trees_all_view refresh completed');
-							// 		// 			query ("REFRESH MATERIALIZED VIEW ct_trees", [], function (err, rows, result) {
-							// 		// 				if (err) {
-							// 		// 					console.log(err);
-							// 		// 					res.status(400);
-							// 		// 					return;
-							// 		// 				}
-							// 		// 				console.log("ct_trees refresh completed");
-							// 		// 				query ("REFRESH MATERIALIZED VIEW chado.tpps_study_summary", [], function (err, rows, result) {
-							// 		// 					if (err) {
-							// 		// 						console.log(err);
-							// 		// 						res.status(400);
-							// 		// 						return;
-							// 		// 					}
-							// 		// 					console.log("tpps_study_summary refresh completed");
-							// 		// 					console.log('Clear the cache');
-							// 		// 					ct_cache.clear();	
-							// 		// 				});
-							// 		// 			});
-							// 		// 		});	
-							// 		// 	});
-							// 		// }, wait_time);
-							// 	});							
-							// });
-						});
-					});
-				});
-			});
-		});
-		/*
-		//THIS HAS BEEN REMOVED IN FAVOUR OF NESTED IF ABOVE SO THAT THE REFRESHES GET EXECUTED IN A SPECIFIC ORDER.
-		//add new trees to table
-		query ("SELECT * FROM chado.ct_view", [], function (err, rows, result) {
-			if (err) {
-				console.log(err);
-				res.status(400);
-				return;
-			}
-			utils.insert_new_trees(res, rows);
-		});	
-		//refresh the view that houses all the trees and their respective data
-		query ("REFRESH MATERIALIZED VIEW ct_trees_all_view", [], function (err, rows, result) {
-			if (err) {
-				console.log(err);
-				res.status(400);
-				return;
-			}
-		});	
-		*/
-		
-		console.log('trees_reload finished.');
-		res.status(200).json("success - reload will continue to run in the background");
-		return;
-	//});
-	}
-	else {
-		res.status(200).json("no asup was given");
-	}
- }
 
 /**
  * Outputs status of reload - whether it is still performing refresh materialized views basically.
@@ -4382,7 +4331,7 @@ exports.force_find_treesnap_terms = function(req, res, next) {
 }
 
 
-exports.force_reload_treesnap = function(req, res, next) {
+exports.force_reload_treesnap = async function(req, res, next) {
 	var api_superuser_password = req.query.asup;
 	
 
@@ -4395,9 +4344,9 @@ exports.force_reload_treesnap = function(req, res, next) {
 		//var treesnap_num = uniquename.split(".")[1];
 		var page_num = 1;
 		
-		//console.log('Performing Treesnap_add page no:' + page_num);
+		console.log('Performing Treesnap_add page no:' + page_num);
 		utils.treesnap_terms = [];
-		// utils.treesnap_add("https://treesnap.org/web-services/v1/observations?page=" + page_num);
+		utils.treesnap_add("https://treesnap.org/web-services/v1/observations?page=" + page_num);
 		res.status(200).json("success");
 		return;
 	}
@@ -5568,6 +5517,53 @@ exports.total_trees = function(req, res, next) {
    }	
 }
 
+/**
+ * Returns the shared trees count
+ * @param {object} request - Request object
+ * @param {object} response - Response object
+ * @param {function} next - Next middleware function in the application"s request-response cycle
+ */
+exports.trees_shared_trees = function(req, res, next) {
+	console.log('trees_shared_trees');
+	console.log(req.body);
+	var studies = req.body['studies[]'];
+	console.log('studies', studies);
+	var studies_csv = "";
+	for(var i=0; i<studies.length; i++) {
+		if (i==0) {
+			studies_csv += "'" + studies[i] + "'";
+		}
+		else {
+			studies_csv += "," + "'" + studies[i] + "'";
+		}
+	}
+	var query_str = "select shared_trees_across_all_studies from chado.test_study_marker_overlap_blah where accessions = array[" + studies_csv +  "]";
+	console.log('query_str', query_str);
+	var cached_results = ct_cache.get(query_str);
+	if(cached_results == null) {
+		query (query_str, [], function(err, rows, result) {
+			if (err) {
+				console.log(err);
+				res.status(400);
+				return;
+			}
+			var rows_object = {};
+			rows_object['debug'] = true;
+			rows_object['studies_csv'] = studies_csv;
+			rows_object['studies'] = studies;
+			rows_object['rows'] = rows;
+			ct_cache.put(query_str, rows_object, cache_time_24);
+			res.status(200).json(rows_object);
+			return;
+		});
+	}
+	else {
+		var rows_object = cached_results;
+		res.status(200).json(rows_object);
+		return;
+   }	
+}
+
 function build_tree_query_str(query_conditions, sources) {	
 	var query_str = "SELECT DISTINCT ON(uniquename) * FROM public.ct_trees_all_view WHERE";
 	//var query_str = "SELECT * FROM ct_trees_all_view WHERE";
@@ -5735,7 +5731,7 @@ exports.trees_list = function(req, res, next) {
 				var currTree = {"type": "Feature"};
 				var is_tree = new Boolean(rows[i]["is_tree"])
 				is_tree = is_tree.toString();
-				currTree["properties"] = {"id": rows[i]["uniquename"], "icon_type": rows[i]["icon_type"], "is_tree": is_tree};
+				currTree["properties"] = {"id": rows[i]["uniquename"], "icon_type": rows[i]["icon_type"], "is_tree": is_tree, "sid": rows[i]["source_id"]};
 				currTree["geometry"] = {"type": "Point", "coordinates": [rows[i]["longitude"], rows[i]["latitude"]]};
 				treeFeatures.push(currTree);
 			}
@@ -5927,15 +5923,16 @@ function wfid_consolidate_metadata_function() {
  */
  exports.popstruct_trees_list = function(req, res, next) {
 	var study_accession = req.query.study_accession;
-	var cached_trees = ct_cache.get("popstruct_trees_list_" + study_accession);
+	// var cached_trees = ct_cache.get("popstruct_trees_list_" + study_accession);
+	cached_trees = null; //disable cache
 	var study_number = parseInt(study_accession.replace('TGDR', ''));
 	
 	console.log(study_accession);
    if(cached_trees == null) {
 	   console.log('Cache is empty, performing a direct query...');
 	   var args = [study_accession];
-	   query ("SELECT * FROM public.ct_trees_all_view WHERE study_accession = $1 AND population IS NOT NULL;", args, function(err, rows, result) {
-	   // query ("SELECT * FROM public.cartogratree_popstruct_layer WHERE study_accession = $1 AND population IS NOT NULL;", args, function(err, rows, result) {
+	   // query ("SELECT * FROM public.ct_trees_all_view WHERE study_accession = $1 AND population IS NOT NULL;", args, function(err, rows, result) {
+	   query ("SELECT * FROM public.cartogratree_popstruct_layer WHERE study_accession = $1 AND population IS NOT NULL;", args, function(err, rows, result) {
 		   if (err) {
 			   console.log(err);
 			   res.status(400);
@@ -5943,6 +5940,7 @@ function wfid_consolidate_metadata_function() {
 		   }
 		   var treeFeatures = [];
 		   for (var i = 0; i < rows.length; i++) {
+			   rows[i]["icon_type"] = 0;
 			   // var population_icon_id = study_number + '-' + rows[i]["population"];
 			   var population_icon_id = rows[i]["population"];
 			   var currTree = {"type": "Feature"};
