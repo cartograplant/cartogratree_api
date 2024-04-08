@@ -2011,6 +2011,79 @@ exports.environmental_get_unique_locations_from_treeids = function(req,res,next)
  }
 
 /**
+ * This should return all trees with the matching collection (treesnap) based on tree_id specified
+ * @param {object} request - Request object
+ * @param {object} response - Response object
+ * @param {function} next - Next middleware function in the application"s request-response cycle   
+ */
+exports.treesnap_collection_name_lookup_by_tree_id = function(req,res,next) {
+	console.log('treesnap_collection_lookup_by_tree_id');
+	console.log(req.query);
+	var tree_id = req.query.tree_id;
+	var query_str = 'SELECT * FROM public.ct_trees_treesnap WHERE uniquename = $1';
+	if (req.query.tree_id != undefined) {
+		console.log(query_str);
+		query (query_str, [tree_id], function (err, rows, result) {
+			if (err) {
+				console.log(err);
+				res.status(400);
+				return;
+			}
+			console.log(rows);
+			res.status(200).json(rows);
+		});
+	}
+	else {
+		res.status(200).json([]);
+	}
+}
+
+
+/**
+ * This should return all trees with the matching collection (treesnap) based on tree_id specified
+ * @param {object} request - Request object
+ * @param {object} response - Response object
+ * @param {function} next - Next middleware function in the application"s request-response cycle   
+ */
+exports.treesnap_collection_lookup_by_tree_id = function(req,res,next) {
+	console.log('treesnap_collection_lookup_by_tree_id');
+	console.log(req.query);
+	var tree_id = req.query.tree_id;
+	var query_str = 'SELECT * FROM public.ct_trees_treesnap WHERE uniquename = $1';
+	if (req.query.tree_id != undefined) {
+		console.log(query_str);
+		query (query_str, [tree_id], function (err, rows, result) {
+			if (err) {
+				console.log(err);
+				res.status(400);
+				return;
+			}
+			console.log(rows);
+			if (rows.length > 0) {
+				var category = rows[0]['category'].toLowerCase();
+				console.log('category', category);
+				query_str = 'SELECT uniquename FROM public.ct_trees_treesnap WHERE category ILIKE $1';
+				query (query_str, [category], function (err, rows, result) {
+					if (err) {
+						console.log(err);
+						res.status(400);
+						return;
+					}
+					console.log(rows);
+					res.status(200).json(rows);
+				});
+			}
+			else {
+				res.status(200).json([]);
+			}
+		});
+	}
+	else {
+		res.status(200).json([]);
+	}
+}
+
+/**
  * This should return all phenotypes by studies specified (overlapping and none overlapping)
  * @param {object} request - Request object
  * @param {object} response - Response object
@@ -5039,13 +5112,16 @@ exports.phenotypes_tree_get = function(req, res, next) {
 				});
 			}
 			else {
-				query ("SELECT * FROM chado.new_pheno_view WHERE tree_acc = $1 ORDER BY phenotype_name ASC;", [tree_id], function (err, rows, result) {
+				query ("SELECT * FROM chado.new_pheno_view WHERE tree_acc = $1 AND synonym IS NOT NULL ORDER BY synonym ASC;", [tree_id], function (err, rows, result) {
 					if (err) {
 						console.log(err);
 						res.status(400);
 						return;
 					}
 					else {
+						if (rows == undefined) {
+							rows = [];
+						}
 						ct_cache.put(key, rows, cache_time_24);
 						res.status(200).json(rows);
 						return;
@@ -5074,7 +5150,7 @@ exports.genotypes_tree_get = function(req, res, next) {
 		var key = tree_id + "_genotype";
 		var cached_val = ct_cache.get(key);
 		if (cached_val == null) {
-			query ("SELECT * FROM chado.new_geno_view WHERE tree_acc LIKE $1 LIMIT 16;", [tree_id], function (err, rows, result) {
+			query ("SELECT * FROM chado.new_geno_view WHERE tree_acc = $1 LIMIT 16;", [tree_id], function (err, rows, result) {
 				if (err) {
 					console.log(err);
 					res.status(400);

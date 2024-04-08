@@ -387,9 +387,13 @@ async function treesnap_add_row(tree_data) {
 		}
 		// fs.appendFileSync('meta_data.txt', JSON.stringify(tree_data['meta_data']) + "\n");
 		console.log('[TREESNAP] INSERTING TREESNAP TREE');
+		var category = null;
+		if (tree_data['category'] != undefined) {
+			category = tree_data['category'];
+		}
 
-		var results = await pool.query("INSERT INTO ct_trees_treesnap (uniquename, species, genus, family, subkingdom, latitude, longitude, source_id, icon_type) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT(uniquename) DO NOTHING",
-			["treesnap." + tree_data["id"], tree_data["genus"] + " " + tree_data["species"], tree_data["genus"], null, null, tree_data["latitude"], tree_data["longitude"], 1, 4]);
+		var results = await pool.query("INSERT INTO ct_trees_treesnap (uniquename, species, genus, family, subkingdom, latitude, longitude, source_id, icon_type, category) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT(uniquename) DO NOTHING",
+			["treesnap." + tree_data["id"], tree_data["genus"] + " " + tree_data["species"], tree_data["genus"], null, null, tree_data["latitude"], tree_data["longitude"], 1, 4, category]);
 		
 		//console.log(tree_data['meta_data']);
 		if(tree_data['meta_data'].diameterNumeric_values != undefined) {
