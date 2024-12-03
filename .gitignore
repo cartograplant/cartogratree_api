@@ -5,6 +5,7 @@ storage.json
 *.log
 *.txt
 *.json
+*.*.json
 *.json*
 *.mbtiles
 treesnap_terms.txt
