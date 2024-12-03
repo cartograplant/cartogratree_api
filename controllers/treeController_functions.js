@@ -9,7 +9,7 @@ exports.load_species_corrections_from_csv_function = function() {
   const fs = require('fs')
   const results = [];
   try {
-    fs.createReadStream(__dirname + '/../store/species_corrections.csv')
+    fs.createReadStream(__dirname + '/../settings/species_corrections.csv')
       .pipe(csv())
       .on('data', (data) => results.push(data))
       .on('end', () => {
@@ -27,7 +27,7 @@ exports.load_species_corrections_from_csv_function = function() {
   catch (err) {
     console.log(err);
     console.log('Could not load / cache species corrections...');
-    console.log('There is no "store/species_corrections.csv" file. Columns should be species,correction,operation');
+    console.log('There is no "settings/species_corrections.csv" file. Columns should be species,correction,operation');
   }
 }
 
