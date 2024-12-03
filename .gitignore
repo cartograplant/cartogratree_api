@@ -1,0 +1,23 @@
+config.js
+tippecanoe/*
+geojson/*
+storage.json
+*.log
+*.txt
+*.json
+*.json*
+*.mbtiles
+treesnap_terms.txt
+wfid.geo.json
+.env
+output.log
+meta_data.txt
+vcftools/*
+store/*
+node_modules/*
+crash_report.txt
+plink/*
+vcftools/*
+# Allow
+!package.json
+
