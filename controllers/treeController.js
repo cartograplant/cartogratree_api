@@ -3276,6 +3276,23 @@ exports.popstruct_get_ui_json = function(req, res, next) {
 	res.send(json_data);
 }
 
+exports.popstruct_nextflow_visualization = function(req, res, next) {
+	console.log('Getting nextflow visualization');
+	try {
+		var analysis_id = req.query.analysis_id;
+		var directory = '/isg/treegenes/cartograplant_analysis/' + analysis_id + '/popstruct/';
+		var json_data = fs.readFileSync(directory + '/completion_message.json');
+		var json_object = JSON.parse(json_data);
+		var barchart_location = json_object['structure_barchart'];
+		res.sendFile(barchart_location);
+		return;
+	}
+	catch (err) {
+		console.log(err);
+	}
+	return;
+}
+
 exports.popstruct_nextflow_workflow = function(req, res, next) {
 	console.log('Running nextflow workflow...');
 	try {
@@ -3288,11 +3305,7 @@ exports.popstruct_nextflow_workflow = function(req, res, next) {
 		for (var i = 0; i < pkeys.length; i++) {
 			var pkey = pkeys[i];
 			var pvalue = properties[pkey];
-			if (pvalue != undefined 
-				&& pvalue != ''	
-			) {
-				pcmd += ' --' + pkey + ' ' + pvalue;
-			}
+			pcmd += ' --' + pkey + ' ' + pvalue;
 		}
 
 		var directory = '/isg/treegenes/cartograplant_analysis/' + analysis_id + '/popstruct/';
@@ -3341,7 +3354,7 @@ exports.genotypes_variant_filtering_panel_filter_and_imputation = function(req, 
 		fs.mkdirSync(directory, { recursive: true });
 		const exec = require('child_process').exec;
 		var cmd = "cd " + directory + '; ';
-		cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -hub gitlab -r main -profile treegenes --input \'' + vcf_location + '\' --filter \'"' + filter + '"\' --panel \'filter-and-imputation\';';
+		cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -hub gitlab -r main -profile treegenes --input \'' + vcf_location + '\' --filter \'' + filter + '\' --panel \'filter-and-imputation\';';
 		console.log('cmd', cmd);
 		var results = {
 			status: 'failed'
@@ -3383,6 +3396,35 @@ exports.genotypes_variant_filtering_panel_filter_and_imputation = function(req, 
 	}
 }
 
+exports.genotypes_variant_filtering_panel_filter_by_genotypes_rules_json = function(req, res, next) {
+	var results = {
+		status: 'failed'
+	};
+	try {
+		var analysis_id = req.body.analysis_id;
+		var study_accession = req.body.study_accession;
+		var vcf_location = req.body.vcf_location;
+		var directory = '/isg/treegenes/cartograplant_analysis/' + analysis_id + '/' + study_accession + '/variant-filtering-pipeline/filter-by-genotypes';	
+		
+		var vcf_location_parts = vcf_location.split('/');
+		var vcf_filename = vcf_location_parts[vcf_location_parts.length - 1];
+		// var vcf_filename_without_ext = vcf_filename.replace('.vcf', '');
+		var vcf_filename_without_ext = vcf_filename.split('.').slice(0, -1).join('.');
+		console.log('vcf_filename_without_ext', vcf_filename_without_ext);
+		results['vcf_filename_without_ext'] = vcf_filename_without_ext;
+		results['study_accession'] = study_accession;
+		results['analysis_id'] = analysis_id;
+		
+		var json_raw = fs.readFileSync(directory + '/rule_options.json');
+		var json_object = JSON.parse(json_raw);
+		results['rules_json'] = json_object;
+		results['status'] = true;
+	}
+	catch (err) {
+		console.log(err);
+	}
+	res.send(JSON.stringify(results));
+}
 
 exports.genotypes_variant_filtering_panel_filter_by_genotypes = function(req, res, next) {
 	try {
@@ -3419,7 +3461,8 @@ exports.genotypes_variant_filtering_panel_filter_by_genotypes = function(req, re
 			// var vcf_location = req.body.vcf_location;
 			var vcf_location_parts = vcf_location.split('/');
 			var vcf_filename = vcf_location_parts[vcf_location_parts.length - 1];
-			var vcf_filename_without_ext = vcf_filename.replace('.vcf', '');
+			// var vcf_filename_without_ext = vcf_filename.replace('.vcf', '');
+			var vcf_filename_without_ext = vcf_filename.split('.').slice(0, -1).join('.');
 			console.log('vcf_filename_without_ext', vcf_filename_without_ext);
 			results['vcf_filename_without_ext'] = vcf_filename_without_ext;
 			// var json_raw = fs.readFileSync('/isg/treegenes/cartograplant_analysis/' + analysis_id + '/' + study_accession + '/variant-filtering-pipeline/filter-by-genotypes/' + vcf_filename_without_ext + '.json');
