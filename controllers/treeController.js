@@ -681,8 +681,9 @@ var generateRandomDouble = function(min, max) {
 										var child = exec(cmd, function(error, stdout, stderr) {
 											if(error) {
 												console.log(error);
-												results['error'] = true;
+												// results['error'] = true;
 												// res.send(JSON.stringify(results));
+												// JSON.stringify({result: 'failed'})
 												return;
 											}
 									
@@ -3270,6 +3271,85 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 // 	}
 // }
 
+exports.gwas_get_ui_json = function(req, res, next) {
+	var json_data = fs.readFileSync('/home/FCAM/tg-nginx/.nextflow/assets/TreeGenes/gwas-pipeline/nextflow_schema.json');
+	res.setHeader('Content-Type', 'application/json');
+	res.send(json_data);	
+}
+
+exports.gwas_step_execution = function(req, res, next) {
+	try {
+		console.log('post vars', req.body);
+		var user_id = req.body.user_id;
+		var workspace_name = req.body.workspace_name;
+		var workspace_dir = '/isg/treegenes/cartograplant_analysis_workspaces/' + user_id + '/' + workspace_name;
+		// var vcf_location = req.body.vcf_location;
+		var analysis_id = req.body.analysis_id;
+		// var study_accession = req.body.study_accession;
+		var flags  = JSON.parse(req.body.flags);
+		console.log('flags', flags);
+		var flags_line = '';
+		var flag_names = Object.keys(flags);
+		console.log('flag_names', flag_names);
+		for (var i = 0; i < flag_names.length; i++) {
+			var flag_name = flag_names[i];
+			flags_line += "--" + flag_name + " '" + flags[flag_name] + "' ";
+		}
+		console.log('Flags line: ' + flags_line);
+		var directory = '/isg/treegenes/cartograplant_analysis/' + analysis_id + '/gwas-pipeline';
+		fs.mkdirSync(directory, { recursive: true });
+		console.log('It came here');
+		const exec = require('child_process').exec;
+		var cmd = "cd " + directory + '; ';
+		cmd += 'nextflow run TreeGenes/gwas-pipeline -hub gitlab -r main -profile treegenes --outdir \'' + workspace_dir + '\' ' + flags_line + ' ;';
+		console.log('cmd', cmd);
+		var results = {
+			status: 'failed'
+		};
+		// console.log('req.body', req.body);
+		console.log('Performing gwas pipeline ...');
+		var child = exec(cmd, function(error, stdout, stderr) {
+			if(error) {
+				console.log(error);
+				results['error'] = true;
+				res.send(JSON.stringify(results));
+				return;
+			}
+
+			results['status'] = 'success';
+			// results['study_accession'] = study_accession;
+			results['analysis_id'] = analysis_id;
+			console.log('stderr', stderr);
+			console.log('stdout', stdout);
+
+			var cmd2 = "cd " + directory + "; RUN_NAME=$(nextflow log | awk -F'\t' 'NR > 1 {print $0}' | sort -r | awk -F'\t' 'NR==1 {print $3}'); nextflow log $RUN_NAME -f script > " + workspace_dir + '/current-runcmds_gwas.txt';
+			var child2 = exec(cmd2, function(error, stdout, stderr) {
+				console.log('stderr', stderr);
+				console.log('stdout', stdout);
+			});
+
+			// Get the JSON
+			// var analysis_id = req.body.analysis_id;
+			// var study_accession = req.body.study_accession;
+			// var vcf_location = req.body.vcf_location;
+			// var vcf_location_parts = vcf_location.split('/');
+			// var vcf_filename = vcf_location_parts[vcf_location_parts.length - 1];
+			// var vcf_filename_without_ext = vcf_filename.replace('.vcf', '');
+			// console.log('vcf_filename_without_ext', vcf_filename_without_ext);
+			// results['vcf_filename_without_ext'] = vcf_filename_without_ext;
+			// // var json_raw = fs.readFileSync('/isg/treegenes/cartograplant_analysis/' + analysis_id + '/' + study_accession + '/variant-filtering-pipeline/filter-by-genotypes/' + vcf_filename_without_ext + '.json');
+			// var json_raw = fs.readFileSync('/isg/treegenes/cartograplant_analysis/' + analysis_id + '/' + study_accession + '/variant-filtering-pipeline/filter-by-genotypes/rule_options.json');
+			// var json_object = JSON.parse(json_raw);
+			// results['rules_json'] = json_object;
+
+			res.status(200).send(JSON.stringify(results))
+		});
+	}
+	catch (err) {
+		console.log(err);
+	}
+}
+
 exports.popstruct_get_ui_json = function(req, res, next) {
 	var json_data = fs.readFileSync('/home/FCAM/tg-nginx/.nextflow/assets/TreeGenes/population-structure-pipeline/nextflow_schema.json');
 	res.setHeader('Content-Type', 'application/json');
@@ -3296,6 +3376,11 @@ exports.popstruct_nextflow_visualization = function(req, res, next) {
 exports.popstruct_nextflow_workflow = function(req, res, next) {
 	console.log('Running nextflow workflow...');
 	try {
+		// user_id
+		// workspace_name
+		var user_id = req.body.user_id;
+		var workspace_name = req.body.workspace_name;
+		var workspace_dir = '/isg/treegenes/cartograplant_analysis_workspaces/' + user_id + '/' + workspace_name;
 		var analysis_id = req.body.analysis_id;
 		var properties = req.body.properties;
 		console.log('properties', properties);
@@ -3312,7 +3397,7 @@ exports.popstruct_nextflow_workflow = function(req, res, next) {
 		fs.mkdirSync(directory, { recursive: true });
 		const exec = require('child_process').exec;
 		var cmd = "cd " + directory + '; ';
-		cmd += 'nextflow run TreeGenes/population-structure-pipeline -hub gitlab -r main -profile treegenes ';
+		cmd += 'nextflow run TreeGenes/population-structure-pipeline -hub gitlab -r main -profile treegenes --outdir \'' + workspace_dir + '\'';
 		cmd += pcmd; // add the properties flags
 		console.log('cmd', cmd);
 		var results = {
@@ -3334,7 +3419,11 @@ exports.popstruct_nextflow_workflow = function(req, res, next) {
 			console.log('stderr', stderr);
 			console.log('stdout', stdout);
 
-
+			var cmd2 = "cd " + directory + "; RUN_NAME=$(nextflow log | awk -F'\t' 'NR > 1 {print $0}' | sort -r | awk -F'\t' 'NR==1 {print $3}'); nextflow log $RUN_NAME -f script > " + workspace_dir + '/current-runcmds_population_structure.txt';
+			var child2 = exec(cmd2, function(error, stdout, stderr) {
+				console.log('stderr', stderr);
+				console.log('stdout', stdout);
+			});
 			res.send(JSON.stringify(results));
 			return;
 		});
@@ -3346,6 +3435,9 @@ exports.popstruct_nextflow_workflow = function(req, res, next) {
 
 exports.genotypes_variant_filtering_panel_filter_and_imputation = function(req, res, next) {
 	try {
+		var user_id = req.body.user_id;
+		var workspace_name = req.body.workspace_name;
+		var workspace_dir = '/isg/treegenes/cartograplant_analysis_workspaces/' + user_id + '/' + workspace_name;
 		var vcf_location = req.body.vcf_location;
 		var analysis_id = req.body.analysis_id;
 		var study_accession = req.body.study_accession;
@@ -3354,7 +3446,7 @@ exports.genotypes_variant_filtering_panel_filter_and_imputation = function(req, 
 		fs.mkdirSync(directory, { recursive: true });
 		const exec = require('child_process').exec;
 		var cmd = "cd " + directory + '; ';
-		cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -hub gitlab -r main -profile treegenes --input \'' + vcf_location + '\' --filter \'' + filter + '\' --panel \'filter-and-imputation\';';
+		cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -hub gitlab -r main -profile treegenes --outdir \'' + workspace_dir + '\'  --input \'' + vcf_location + '\' --filter \'' + filter + '\' --panel \'filter-and-imputation\';';
 		console.log('cmd', cmd);
 		var results = {
 			status: 'failed'
@@ -3368,11 +3460,18 @@ exports.genotypes_variant_filtering_panel_filter_and_imputation = function(req, 
 				res.send(JSON.stringify(results));
 				return;
 			}
+
 			results['status'] = 'success';
 			results['study_accession'] = study_accession;
 			results['analysis_id'] = analysis_id;
 			console.log('stderr', stderr);
 			console.log('stdout', stdout);
+
+			var cmd2 = "cd " + directory + "; RUN_NAME=$(nextflow log | awk -F'\t' 'NR > 1 {print $0}' | sort -r | awk -F'\t' 'NR==1 {print $3}'); nextflow log $RUN_NAME -f script > " + workspace_dir + '/current-runcmds_filter_and_imputation.txt';
+			var child2 = exec(cmd2, function(error, stdout, stderr) {
+				console.log('stderr', stderr);
+				console.log('stdout', stdout);
+			});
 
 			// Get the JSON
 			// var analysis_id = req.body.analysis_id;
@@ -3426,8 +3525,49 @@ exports.genotypes_variant_filtering_panel_filter_by_genotypes_rules_json = funct
 	res.send(JSON.stringify(results));
 }
 
+exports.genotypes_variant_filtering_panel_get_statistics = function (req, res, next) {
+	try {
+		console.log('It came here');
+		var user_id = req.body.user_id;
+		var workspace_name = req.body.workspace_name;
+		var variable_name = req.body.variable_name;
+		console.log('variable_name', variable_name);
+		var study_accession = req.body.study_accession;
+		var workspace_dir = '/isg/treegenes/cartograplant_analysis_workspaces/' + user_id + '/' + workspace_name;
+		var file_location = workspace_dir + '/bcftools/' + variable_name + '.txt';
+		var file_data = undefined;
+		if (fs.existsSync(file_location)) {
+			console.log('File found: ' + file_location);
+			file_data = fs.readFileSync(file_location);
+		}
+		else {
+			console.log('File found: ' + file_location);
+			file_location = workspace_dir + '/bcftools/FORMAT_' + variable_name + '.txt';
+			file_data = fs.readFileSync(file_location);
+		}
+		console.log('file_data_length', file_data.length);
+		if (file_data != undefined) {
+			file_data = file_data.toString().split("\n");
+		}
+		// console.log('file_data', file_data);
+		var results = {
+			status: 'success',
+			study_accession: study_accession,
+			values: file_data
+		}
+		// console.log('IT CAME HERE');
+		res.send(JSON.stringify(results));
+	}
+	catch (err) {
+		console.log(err);
+	}
+}
+
 exports.genotypes_variant_filtering_panel_filter_by_genotypes = function(req, res, next) {
 	try {
+		var user_id = req.body.user_id;
+		var workspace_name = req.body.workspace_name;
+		var workspace_dir = '/isg/treegenes/cartograplant_analysis_workspaces/' + user_id + '/' + workspace_name;
 		var vcf_location = req.body.vcf_location;
 		var analysis_id = req.body.analysis_id;
 		var study_accession = req.body.study_accession;
@@ -3435,20 +3575,28 @@ exports.genotypes_variant_filtering_panel_filter_by_genotypes = function(req, re
 		fs.mkdirSync(directory, { recursive: true });
 		const exec = require('child_process').exec;
 		var cmd = "cd " + directory + '; ';
-		cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -hub gitlab -r main -profile treegenes --input \'' + vcf_location + '\' --panel \'filter-by-genotypes\';';
+		cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -hub gitlab -r main -profile treegenes --outdir \'' + workspace_dir + '\' --input \'' + vcf_location + '\' --panel \'filter-by-genotypes\';';
 		console.log('cmd', cmd);
 		var results = {
 			status: 'failed'
 		};
+		results['study_accession'] = study_accession;
 		console.log('req.body', req.body);
 		console.log('Performing variant filtering pipeline (filter by genotypes) for ' + study_accession);
 		var child = exec(cmd, function(error, stdout, stderr) {
 			if(error) {
 				console.log(error);
 				results['error'] = true;
+				results['study_accession'] = study_accession;
+				results['error_msg'] = error;
+				results['completion_message'] = {};
+				try {
+					results['completion_message'] = JSON.parse(fs.readFileSync(directory + '/completion_message.json'));
+				} catch (err) {}
 				res.send(JSON.stringify(results));
 				return;
 			}
+
 			results['status'] = 'success';
 			results['study_accession'] = study_accession;
 			results['analysis_id'] = analysis_id;
@@ -3469,13 +3617,17 @@ exports.genotypes_variant_filtering_panel_filter_by_genotypes = function(req, re
 			var json_raw = fs.readFileSync('/isg/treegenes/cartograplant_analysis/' + analysis_id + '/' + study_accession + '/variant-filtering-pipeline/filter-by-genotypes/rule_options.json');
 			var json_object = JSON.parse(json_raw);
 			results['rules_json'] = json_object;
+			res.send(JSON.stringify(results));
+			return;
 
-			res.send(JSON.stringify(results))
 		});
 	}
 	catch (err) {
 		console.log(err);
+		res.send(JSON.stringify(results));
+		return;
 	}
+	
 }
   
 /**
@@ -3495,9 +3647,17 @@ exports.genotypes_variant_filtering_panel_filter_by_genotypes = function(req, re
 				return;
 			}
 
-			// Add count
-			rows[0]['count'] = rows[0]['markers'].length;
-			res.status(200).send(JSON.stringify(rows));
+			if (rows != undefined) {
+				if (rows.length > 0) {
+					// Add count
+					rows[0]['count'] = rows[0]['markers'].length;
+					res.status(200).send(JSON.stringify(rows));
+				}
+				else {
+					rows = [];
+					res.status(200).send(JSON.stringify(rows));
+				}
+			}
 		});
 	}
 	catch (err) {
@@ -3525,7 +3685,20 @@ exports.genotypes_variant_filtering_panel_filter_by_genotypes = function(req, re
 			}
 
 			console.log(rows);
-			res.status(200).send(JSON.stringify({ cardinality: rows[0]['cardinality'] }));
+			if (rows != undefined) {
+				if (rows.length > 0) {
+					res.status(200).send(JSON.stringify({ cardinality: rows[0]['cardinality'] }));
+					return;
+				}
+				else {
+					res.status(200).send(JSON.stringify({ cardinality: 0 }));
+					return;
+				}
+			}
+			else {
+				res.status(200).send(JSON.stringify({ cardinality: 0 }));
+				return;
+			}
 		});
 	}
 	catch (err) {

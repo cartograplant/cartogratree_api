@@ -45,8 +45,8 @@ async function process_trees_reload() {
 
     if(check_refresh_views_promise_response == "completed") {
         var ct_view_promise_response = await new Promise(function(resolve,reject) {
-            write_log('EXECUTING: ct_view');
-            query ("CALL refresh_views();", [], function (err, rows, result) {
+            write_log('EXECUTING: refresh_views()');
+            query ("CALL public.refresh_views();", [], function (err, rows, result) {
                 if (err) {
                     console.log(err);
                     write_log('ERROR: refresh_views() could not be refreshed.'); 

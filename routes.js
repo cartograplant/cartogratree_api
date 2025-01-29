@@ -50,6 +50,7 @@ module.exports = async function(app, global) {
 	app.post("/cartogratree/api/v2/genotypes/snps_get_tree_ids_by_analysis_id", tree_controller.genotypes_snps_get_tree_ids_by_analysis_id);
 	app.post("/cartogratree/api/v2/genotypes/snp_vcf_filtering", tree_controller.genotypes_snp_vcf_filtering);
 	app.post("/cartogratree/api/v2/genotypes/variant_filtering_panel_filter_by_genotypes", tree_controller.genotypes_variant_filtering_panel_filter_by_genotypes);
+	app.post("/cartogratree/api/v2/genotypes/variant_filtering_panel_get_statistics", tree_controller.genotypes_variant_filtering_panel_get_statistics);
 	app.post("/cartogratree/api/v2/genotypes/variant_filtering_panel_filter_by_genotypes_rules_json", tree_controller.genotypes_variant_filtering_panel_filter_by_genotypes_rules_json);
 	app.post("/cartogratree/api/v2/genotypes/variant_filtering_panel_filter_and_imputation", tree_controller.genotypes_variant_filtering_panel_filter_and_imputation);
 	// app.post("/cartogratree/api/v2/genotypes/variant_filtering_panel_filter_by_genotypes_rule_options", tree_controller.genotypes_variant_filtering_panel_filter_by_genotypes_rule_options);
@@ -57,6 +58,10 @@ module.exports = async function(app, global) {
 	app.post("/cartogratree/api/v2/popstruct/get_ui_json", tree_controller.popstruct_get_ui_json);
 	app.post("/cartogratree/api/v2/popstruct/nextflow_workflow", tree_controller.popstruct_nextflow_workflow);
 	app.get("/cartogratree/api/v2/popstruct/nextflow_visualization", tree_controller.popstruct_nextflow_visualization);
+
+	app.get("/cartogratree/api/v2/gwas/get_ui_json", tree_controller.gwas_get_ui_json);
+	app.post("/cartogratree/api/v2/gwas/step_execution", tree_controller.gwas_step_execution);
+
 
 	app.get("/cartogratree/api/v2/fields/trees", tree_controller.trees_get_fields);
 	app.get("/cartogratree/api/v2/fields/trees/dynamic", tree_controller.trees_get_fields_dynamic);
