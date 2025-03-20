@@ -4859,6 +4859,75 @@ exports.force_find_treesnap_terms = function(req, res, next) {
 	}
 }
 
+exports.force_reload_mama = async function(req, res, next) {
+	var api_superuser_password = req.query.asup;
+
+	var api_key = req.query.api_key;
+
+	if(config.conf.api_superuser_password == api_superuser_password) {	
+		ct_cache.clear();		
+
+		console.log('Performing MAMA LOAD');
+
+
+		var axios = require('axios');
+		var https = require('https');
+	
+		const axios_instance = axios.create({
+			httpsAgent: new https.Agent({  
+			  rejectUnauthorized: false
+			})
+		});
+
+		try {
+			var url = "https://anecdata.org/rest_observations_v1.json?project_id=316";
+			console.log('URL:' + url);
+			var config2 = {
+				method: 'get',
+				url: url,
+				// headers: {
+				// 	"Accept": "application/json",
+				// }
+			}
+			// console.log(config);
+			axios_instance(config2).then(async function(response) {
+				
+				try {
+					var data = response.data;
+					console.log(data);
+					var items = data.items; // array
+					for (var i = 0; i < items.length; i++) {
+						
+						var item = items[i];
+						var tree_id = "mama." + item.id
+						utils.mama_add_tree(tree_id, item);
+						var rows = item.rows;
+						for (var j = 0; j < rows.length; j++) {
+							var row = rows[j];
+							var fields = row.fields;
+							utils.mama_add_phenotype_rows(tree_id, fields);
+						}
+						// console.log(item);
+					}
+				}
+				catch (err) {
+					console.log(err);
+				}
+			}).catch(function (err) {
+				console.log(err);
+			});
+		}
+		catch (err) {
+			console.log(err);
+		}
+		res.status(200).json("success");
+		return;
+	}
+	else {
+		res.status(200).json("no asup was given");
+		return;		
+	}
+}
 
 exports.force_reload_treesnap = async function(req, res, next) {
 	var api_superuser_password = req.query.asup;

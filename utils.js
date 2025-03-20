@@ -358,6 +358,55 @@ async function treesnap_add(base_url) {
 
 }
 
+async function mama_add_tree(tree_id, item) {
+	// Each item has a rows key which contains field data like phenotypic data
+	console.log('Attempt to add MAMA TREE ID:' + item.id);
+	const client = await pool.connect()
+	await client.query("INSERT INTO public.ct_trees_mama (uniquename, species, genus, family, subkingdom, latitude, longitude, source_id, icon_type, category) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT(uniquename) DO NOTHING",
+		[tree_id, null, null, null, null, item.location.lat, item.location.lng, 7, 4, null]);
+		
+	client.release();
+}
+
+async function mama_add_phenotype_rows(tree_id, fields) {
+	// Each item has a rows key which contains field data like phenotypic data
+	const client = await pool.connect()
+	for (var j = 0; j < fields.length; j++) {
+		try {
+			var field = fields[j];
+			var value = null;
+			var slug = field['slug'];
+			var name = field['name'];
+			console.log('Attempt to add MAMA PHENOTYPE:' + slug);
+			if (field['value'] != null) {
+				value = field['value'];
+			}
+			else if (field['value_id'] != null) {
+				// Lookup frrom the picklist objects
+				for (var k = 0; k < field['picklist'].length; k++) {
+					var picklist_item = field['picklist'][k];
+					if (picklist_item['id'] == field['value_id']) {
+						value = picklist_item['value'];
+						break;
+					}
+				}
+			}
+			else if (field['uploads'] != null && field['uploads'].length > 0) {
+				// This is a file upload, so we need to get the first one
+				value = field['uploads'][0]['url'];
+			}
+			if (value != null && value != '') {
+				await client.query("INSERT INTO public.ct_trees_phenotypes_mama (uniquename, tree_acc,name,mapped_name,phenotype_name,value,units,observable_name,observable_accession,cvterm_name,cvterm_accession,structure_name,structure_accession) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT(uniquename) DO NOTHING",
+					[tree_id + "." + slug, tree_id,name,null,slug,value,null,null,null,null,null,null, null]);
+			}
+		}
+		catch (err) {
+			console.log(err);
+		}
+	}
+	client.release();
+}
+
 async function treesnap_add_row(tree_data) {
 	console.log('TreeSnap ID:' + tree_data["id"]);
 	// console.log(tree_data);
@@ -1584,6 +1633,8 @@ module.exports = {
 	decrypt,
 	valid_api_key,
 	execute_request,
+	mama_add_tree,
+	mama_add_phenotype_rows,
 	treesnap_add,
 	treesnap_add_get_terms_only,
 	treesnap_add_row_get_terms_only,
