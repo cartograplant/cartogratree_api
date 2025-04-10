@@ -358,17 +358,161 @@ async function treesnap_add(base_url) {
 
 }
 
-async function mama_add_tree(tree_id, item) {
-	// Each item has a rows key which contains field data like phenotypic data
-	console.log('Attempt to add MAMA TREE ID:' + item.id);
-	const client = await pool.connect()
-	await client.query("INSERT INTO public.ct_trees_mama (uniquename, species, genus, family, subkingdom, latitude, longitude, source_id, icon_type, category) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT(uniquename) DO NOTHING",
-		[tree_id, null, null, null, null, item.location.lat, item.location.lng, 7, 4, null]);
-		
-	client.release();
+async function mama_ash_eab_surveys_clear_trees() {
+	const client = await pool.connect();
+	await client.query("DELETE FROM public.ct_trees_mama_ash_eab_surveys");
+    client.release();
 }
 
-async function mama_add_phenotype_rows(tree_id, fields) {
+async function mama_ash_eab_surveys_add_tree(tree_id, item) {
+	// Each item has a rows key which contains field data like phenotypic data
+    // Each item has a rows key which contains field data like phenotypic data
+    console.log('Attempt to add MAMA TREE ID:' + item.id);
+    const client = await pool.connect();
+    var is_private = null;
+    // We need to still go through all rows within this item to get to 'Ash species identification' to set black ash to is_private = 0
+    var rows = item.rows;
+	var genus = null;
+	var species = null;
+    for (var j = 0; j < rows.length; j++) {
+        var row = rows[j];
+        var fields = row.fields;
+        for (var j = 0; j < fields.length; j++) {
+            try {
+                var field = fields[j];
+                var value = null;
+                var slug = field['slug'];
+                var name = field['name'];
+                if (slug.includes('ash-species-identification')) {
+                    console.log('Detected an ash-species-identification for tree :' + tree_id);
+                    if (field['value'] != null && field['value'] != 'null') {
+                        value = field['value'];
+                    }
+                    else if (field['value_id'] != null) {
+                        // Lookup frrom the picklist objects
+                        for (var k = 0; k < field['picklist'].length; k++) {
+                            var picklist_item = field['picklist'][k];
+                            if (picklist_item['id'] == field['value_id']) {
+                                value = picklist_item['value'];
+                                break;
+                            }
+                        }
+                    }
+					
+                    if (value != null && value != '') {
+						
+						var lower_value = value.toLowerCase();
+						console.log("value:" + lower_value);
+						if (lower_value.includes('black ash') || lower_value.includes('nigra')) {
+							is_private = 1;
+							genus = 'Fraxinus';
+							species = genus + ' nigra';
+						}
+						else if (lower_value.includes('ash sp')) {
+							genus = 'Fraxinus';
+							species = null;
+						}
+						else if (lower_value.includes('white ash') || lower_value.includes('americana')) {
+							genus = 'Fraxinus';
+							species = genus + ' americana';
+						}		
+						else if (lower_value.includes('green ash') || lower_value.includes('pennsylvanica')) {
+							genus = 'Fraxinus';
+							species = genus + ' pennsylvanica';
+						}
+						else if (lower_value.includes('blue ash') || lower_value.includes('quadrangulata')) {
+							genus = 'Fraxinus';
+							species = genus + ' quadrangulata';
+						}				
+						else if (lower_value.includes('pumpkin ash') || lower_value.includes('profunda')) {
+							genus = 'Fraxinus';
+							species = genus + ' profunda';
+						}
+						else if (lower_value.includes('not sure if this is ash')) {
+							genus = 'Fraxinus (unconfirmed)';
+							species = null;
+						}
+                    }
+                }
+            }
+            catch (err) {
+                console.log(err);
+            }
+        }
+    }
+
+	// Add jitter to the lat and lng values
+	var lat = "" + item.location.lat; // turn to string
+	var lng = "" + item.location.lng; // turn to string
+
+	// LATITUDE
+	// 1 degree of latitude is approximately 111 kilometers (69 miles). 
+	// 0.1 degrees of latitude is approximately 11.1 kilometers (6.9 miles). 
+	// 0.01 degrees of latitude is approximately 1.11 kilometers (0.69 miles). 
+	// 0.001 degrees of latitude is approximately 111 meters (364 feet). 
+
+	// LONGITUDE
+	// One decimal place: Distinguishes between large regions or countries. 
+	// Two decimal places: Can identify a large city or district. 
+	// Three decimal places: Represents a distance of roughly 111 meters. 
+	// Four decimal places: Represents a distance of roughly 11.1 meters. 
+	// Five decimal places: Represents a distance of roughly 1.11 meters. 
+	// Six decimal places: Represents a distance of roughly 0.111 meters. 
+
+	var jitter = 0.01; // + or - will depend on what the value is in the original lat and lng
+	var lat_jittered = '';
+	var lng_jittered = '';
+
+	if (lat.includes('.')) {
+		var right_decimals = lat.split('.')[1]
+		var length = right_decimals.length;
+		if (length >= 2) {
+			var decimal_val = parseInt(right_decimals.substring(1,2));
+			if (decimal_val > 0 && decimal_val <= 9) {
+				lat_jittered = parseFloat(lat) - jitter;
+			}
+			else {
+				lat_jittered = parseFloat(lat) + jitter;
+			}
+		}
+	}
+	else {
+		lat_jittered = parseFloat(lat) + jitter;
+	}
+
+	if (lng.includes('.')) {
+		var right_decimals = lng.split('.')[1]
+		var length = right_decimals.length;
+		if (length >= 2) {
+			var decimal_val = parseInt(right_decimals.substring(1,2));
+			if (decimal_val > 0 && decimal_val <= 9) {
+				lng_jittered = parseFloat(lng) - jitter;
+			}
+			else {
+				lng_jittered = parseFloat(lng) + jitter;
+			}
+		}
+	}
+	else {
+		lng_jittered = parseFloat(lng) + jitter;
+	}
+	
+	
+    await client.query(
+		"INSERT INTO public.ct_trees_mama_ash_eab_surveys " + 
+		"(uniquename, species, genus, family, subkingdom, latitude, longitude, source_id, icon_type, category, is_private, latitude_precise, longitude_precise) " + 
+		"VALUES($1, $2,      $3,   $4,   $5,          $6,                $7,       $8, $9, $10,      $11,    $12,          $13) ON CONFLICT(uniquename) DO NOTHING",
+        [tree_id, species, genus, null, null,   lat_jittered, lng_jittered, 6, 4, null, is_private, item.location.lat, item.location.lng]);
+    client.release();
+}
+
+async function mama_ash_eab_surveys_clear_phenotypes() {
+	const client = await pool.connect();
+	await client.query("DELETE FROM public.ct_trees_phenotypes_mama_ash_eab_surveys");
+    client.release();
+}
+
+async function mama_ash_eab_surveys_add_phenotype_rows(tree_id, fields) {
 	// Each item has a rows key which contains field data like phenotypic data
 	const client = await pool.connect()
 	for (var j = 0; j < fields.length; j++) {
@@ -395,9 +539,66 @@ async function mama_add_phenotype_rows(tree_id, fields) {
 				// This is a file upload, so we need to get the first one
 				value = field['uploads'][0]['url'];
 			}
-			if (value != null && value != '') {
-				await client.query("INSERT INTO public.ct_trees_phenotypes_mama (uniquename, tree_acc,name,mapped_name,phenotype_name,value,units,observable_name,observable_accession,cvterm_name,cvterm_accession,structure_name,structure_accession) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT(uniquename) DO NOTHING",
-					[tree_id + "." + slug, tree_id,name,null,slug,value,null,null,null,null,null,null, null]);
+			if (value != null && value != '' && value != 'null') {
+				// var name = slug;
+				var structure = null;
+				var structure_id = null;
+				var attribute = null;
+				var cvterm_1_name = null;
+				var cvterm_1_id = null;
+				var cvterm_2_name = null;
+				var cvterm_2_id = null;
+				var unit = null;
+				var valid_phenotype = false;
+				switch (name) {
+					case 'Multiple D-shaped holes?':
+						name = 'presence of D shaped holes in bark'
+						structure = 'bark';
+						structure_id = 52702;
+						attribute = 'presence';
+						cvterm_1_name = 'fenestrated';
+						cvterm_1_id = 137595;
+						unit = 'binary';
+						unit_id = 51085;
+						valid_phenotype = true;
+						break;
+					case 'Distinctive EAB larvae?':
+						name = 'presence of emerald ash borer larvae'
+						structure = 'whole plant';
+						structure_id = '52336';
+						attribute = 'presence';
+						cvterm_1_name = 'emerald ash borer';
+						cvterm_1_id = 143002;
+						cvterm_2_name = 'larva';
+						cvterm_2_id = 136785;
+						unit = 'binary';
+						unit_id = 51085
+						valid_phenotype = true;
+						break;
+					case 'Add photo of distinctive EAB larvae':
+						name = 'photo of emerald ash borer larvae'
+						structure = 'whole plant';
+						structure_id = '2749';
+						attribute = 'image';
+						cvterm_1_name = 'emerald ash borer';
+						cvterm_1_id = 143002;
+						cvterm_2_name = 'larva';
+						cvterm_2_id = 136785
+						unit = 'image';
+						unit_id = 2749;
+						valid_phenotype = true;
+						break;
+				}
+				if (valid_phenotype == true) {
+					await client.query(
+						"INSERT INTO public.ct_trees_phenotypes_mama_ash_eab_surveys " +
+						//      1         2       3        4            5          6    7         8                 9                 10            11              12              13                 14           15         16            17             18             19
+						" (uniquename, tree_acc,name,mapped_name,phenotype_name,value,units,observable_name,observable_accession,cvterm_name,cvterm_accession,structure_name,structure_accession, structure_id, unit_id, cvterm_1_name, cvterm_1_id, cvterm_2_name, cvterm_2_id) " + 
+						" VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) ON CONFLICT(uniquename) DO NOTHING",
+						//          1              2     3    4    5    6    7       8      9    10   11     12       13       14          15          16           17           18              19
+						[tree_id + "." + slug, tree_id,name,null,slug,value,unit,attribute,null,null,null,structure, null, structure_id, unit_id, cvterm_1_name, cvterm_1_id, cvterm_2_name, cvterm_2_id]
+					);
+				}
 			}
 		}
 		catch (err) {
@@ -479,12 +680,12 @@ async function treesnap_add_row(tree_data) {
 		//console.log(tree_data['meta_data']);
 		const client = await pool.connect()
 		if(tree_data['meta_data'].diameterNumeric_values != undefined) {
-			await client.query("INSERT INTO public.ct_trees_phenotypes_treesnap (uniquename, tree_acc,name,mapped_name,phenotype_name,value,units,observable_name,observable_accession,cvterm_name,cvterm_accession,structure_name,structure_accession) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT(uniquename) DO NOTHING",
-				["treesnap." + tree_data["id"] + ".diameter", "treesnap." + tree_data["id"],"diameter",'Diameter',"diameter", tree_data['meta_data'].diameterNumeric_values.US_value, tree_data['meta_data'].diameterNumeric_values.US_unit,"diameter","PATO:0001334","diameter","PATO:0001334","stem", "PO_0009047"]);
+			await client.query("INSERT INTO public.ct_trees_phenotypes_treesnap (uniquename, tree_acc,name,mapped_name,phenotype_name,value,units,observable_name,observable_accession,structure_name,structure_accession) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(uniquename) DO NOTHING",
+				["treesnap." + tree_data["id"] + ".diameter", "treesnap." + tree_data["id"],"diameter",'Diameter',"diameter", tree_data['meta_data'].diameterNumeric_values.US_value, tree_data['meta_data'].diameterNumeric_values.US_unit,"diameter","PATO:0001334","stem", "PO_0009047"]);
 		}
 		if(tree_data['meta_data'].heightNumeric_values != undefined) {
-			await client.query("INSERT INTO public.ct_trees_phenotypes_treesnap (uniquename, tree_acc,name,mapped_name,phenotype_name,value,units,observable_name,observable_accession,cvterm_name,cvterm_accession,structure_name,structure_accession) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT(uniquename) DO NOTHING",
-				["treesnap." + tree_data["id"] + ".height", "treesnap." + tree_data["id"],"height",'Height',"height", tree_data['meta_data'].heightNumeric_values.US_value, tree_data['meta_data'].heightNumeric_values.US_unit,"height","PATO:0000119","height","PATO:0000119","whole plant", "PO:0000003"]);
+			await client.query("INSERT INTO public.ct_trees_phenotypes_treesnap (uniquename, tree_acc,name,mapped_name,phenotype_name,value,units,observable_name,observable_accession,structure_name,structure_accession) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(uniquename) DO NOTHING",
+				["treesnap." + tree_data["id"] + ".height", "treesnap." + tree_data["id"],"height",'Height',"height", tree_data['meta_data'].heightNumeric_values.US_value, tree_data['meta_data'].heightNumeric_values.US_unit,"height","PATO:0000119","whole plant", "PO:0000003"]);
 		}
 		
 
@@ -949,14 +1150,14 @@ async function treesnap_add_row(tree_data) {
 					}
 					
 					if (is_phenotype == false) {
-						await client.query("INSERT INTO public.ct_trees_data_treesnap (uniquename, tree_acc,name,phenotype_name,mapped_name,value,units,observable_name,observable_accession,cvterm_name,cvterm_accession,structure_name,structure_accession,confidence,additional_term,additional_term_accession) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) ON CONFLICT(uniquename) DO NOTHING",
+						await client.query("INSERT INTO public.ct_trees_data_treesnap (uniquename, tree_acc,name,phenotype_name,mapped_name,value,units,observable_name,observable_accession,cvterm_name,cvterm_accession,structure_name,structure_accession,confidence,cvterm_1_name,additional_term_accession) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) ON CONFLICT(uniquename) DO NOTHING",
 						["treesnap." + tree_data["id"] + "." + phenotype_name, "treesnap." + tree_data["id"],phenotype_name,phenotype_name,mapped_name,value,new_units,attribute,attribute_accession,phenotype_name,"",structure, structure_accession,confidence,additional_term,additional_term_accession]);	
 					}
 					if (is_phenotype == true) {
 						if(value != "I'm not sure" && value != "Unknown" && value != "Not sure" && phenotype_name != "ashSpecies" && phenotype_name != "comment" && phenotype_name != "hybridTraits" && phenotype_name != "hybridAttributes" && phenotype_name != "otherLabel") {
 							// console.log(phenotype_name + ',' + value + ',' + new_units);
-							await client.query("INSERT INTO public.ct_trees_phenotypes_treesnap (uniquename, tree_acc,name,phenotype_name,mapped_name,value,units,observable_name,observable_accession,cvterm_name,cvterm_accession,structure_name,structure_accession,confidence,additional_term,additional_term_accession) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) ON CONFLICT(uniquename) DO NOTHING",
-								["treesnap." + tree_data["id"] + "." + phenotype_name, "treesnap." + tree_data["id"],phenotype_name,phenotype_name,mapped_name,value,new_units,attribute,attribute_accession,phenotype_name,"",structure, structure_accession,confidence,additional_term,additional_term_accession]);
+							await client.query("INSERT INTO public.ct_trees_phenotypes_treesnap (uniquename, tree_acc,name,phenotype_name,mapped_name,value,units,observable_name,observable_accession,structure_name,structure_accession,confidence,cvterm_1_name,additional_term_accession) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT(uniquename) DO NOTHING",
+								["treesnap." + tree_data["id"] + "." + phenotype_name, "treesnap." + tree_data["id"],phenotype_name,phenotype_name,mapped_name,value,new_units,structure, structure_accession,confidence,additional_term,additional_term_accession]);
 						}
 					}
 				}
@@ -1633,8 +1834,10 @@ module.exports = {
 	decrypt,
 	valid_api_key,
 	execute_request,
-	mama_add_tree,
-	mama_add_phenotype_rows,
+	mama_ash_eab_surveys_clear_trees,
+	mama_ash_eab_surveys_clear_phenotypes,
+	mama_ash_eab_surveys_add_tree,
+	mama_ash_eab_surveys_add_phenotype_rows,
 	treesnap_add,
 	treesnap_add_get_terms_only,
 	treesnap_add_row_get_terms_only,

@@ -26,6 +26,9 @@ module.exports = async function(app, global) {
 	app.post("/cartogratree/api/v2/wfid/observation/action", tree_controller.wfid_observation_action_hook);
 	app.get("/cartogratree/api/v2/wfid/import/observations/all", tree_controller.wfid_import_observations_all);
 
+	app.get("/cartogratree/api/v2/anecdata/login", tree_controller.anecdata_login); // this has the mama data by performing login
+	app.get("/cartogratree/api/v2/trees/mama/force_reload", tree_controller.force_reload_mama);
+
 	app.get("/cartogratree/api/v2/tree", tree_controller.tree_get_basic);
 	app.get("/cartogratree/api/v2/tree/snp", tree_controller.tree_get_snp); 
 	app.get("/cartogratree/api/v2/tree/treesnap", tree_controller.tree_get_treesnap);
@@ -96,7 +99,7 @@ module.exports = async function(app, global) {
 	app.get("/cartogratree/api/v2/trees/treesnap/collection_lookup_by_tree_id", tree_controller.treesnap_collection_lookup_by_tree_id);
 	app.get("/cartogratree/api/v2/trees/treesnap/collection_name_lookup_by_tree_id", tree_controller.treesnap_collection_name_lookup_by_tree_id);
 
-	app.get("/cartogratree/api/v2/trees/mama/force_reload", tree_controller.force_reload_mama);
+	
 
 
 	app.get("/cartogratree/api/v2/trees/dryad/consolidate_dryad_trees_from_treegenes", tree_controller.dryad_consolidate_trees_from_treegenes);

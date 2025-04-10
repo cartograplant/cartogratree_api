@@ -9,6 +9,17 @@ const utils = require("./../utils");
 const query = require("./../query");
 const query_bienv4 = require("./../query_bienv4"); //to cater for BIENv4 data
 var pg_native_client = require('pg-native');
+const { Pool, Client } = require("pg"); 
+const pool = new Pool({
+	host: process.env.DB_HOST,
+	port: process.env.DB_PORT,
+	database: process.env.DB_NAME,
+	user: process.env.DB_USER,
+	password: process.env.DB_PASS,
+	max: 5,
+	idleTimeoutMillis: 30000,
+	connectionTimeoutMillis: 5000, 
+});
 const { spawn } = require('child_process');
 const { fork } = require('child_process');
 // const { stripHtml } = require('string-strip-html'); // ESM module doesn't work with require
@@ -199,6 +210,79 @@ exports.wfid_oauth_token_request = function(req, res, next) {
   catch (err) {
     console.log('wfid_import_observations_all error:', err);
   }
+}
+
+
+async function anecdata_login_do() {
+	var axios = require('axios');
+	var https = require('https');
+
+	const axios_instance = axios.create({
+		httpsAgent: new https.Agent({  
+		  rejectUnauthorized: false
+		})
+	});
+
+	var url = 'https://anecdata.org/rest_users/login.json';
+	// console.log(config);
+	axios_instance({
+		method: 'POST',
+		url: url,
+		data: {
+			"User": {
+				"email": config.conf_anecdata.username,
+				"password": config.conf_anecdata.password
+			}				
+		},
+		headers: {
+			'User-Agent': 'TreeGenesDB',
+			'Content-Type': 'application/json',
+			'Accept': 'application/json'
+		}
+	}).then(function(response) {
+		// console.log(response.data);
+		var data = response.data;
+		console.log(data);
+		config.conf_anecdata.token_loggedin = data.token;
+		console.log(config.conf_anecdata);
+		return data;
+	}).catch (function(err) {
+		console.log(err);
+		return null;
+	});
+}
+
+
+
+
+/**
+ * This requests login from 
+ * @param {object} request - Request object
+ * @param {object} response - Response object
+ * @param {function} next - Next middleware function in the application"s request-response cycle   
+ */
+exports.anecdata_login = async function(req, res, next) {
+	try {
+	  var api_superuser_password = req.query.asup;
+	  //console.log('API SUPERUSER PASSWORD:' + config.conf.api_superuser_password);
+	  if(config.conf.api_superuser_password == api_superuser_password) {
+		var result = anecdata_login_do();
+		if (result != null) {
+			res.status(200).send('success');
+		}
+		else {
+			res.status(400).send('failed');
+		}
+
+	  }
+	  else {
+		res.status(400).send('ASUP is required');
+	  }
+	}
+	catch (err) {
+		console.log(err);
+		res.status(400).send(err);
+	}
 }
 
 async function wfid_import_observations_page(url, oauth_object) {
@@ -492,19 +576,26 @@ var generateRandomDouble = function(min, max) {
 		// We need to get all selected genotypes indexed into an object key format for searching
 		var snps_selected = {};
 		// Connect to the database and retrieve all records from the analysis data table
-		var pg_n_client = new pg_native_client();
+		// var pg_n_client = new pg_native_client();
 		console.log('Connecting to database...');
-		pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		// pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		const client = await pool.connect();
 		//console.log(config.conf.host);
 		//console.log(config.conf.user);
 		//console.log(config.conf.password);
-		pg_n_client.querySync("set datestyle='ISO';");
-		pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
-		pg_n_client.querySync("SET bytea_output TO escape;");
-		pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+		// pg_n_client.querySync("set datestyle='ISO';");
+		// pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
+		// pg_n_client.querySync("SET bytea_output TO escape;");
+		// pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+		await client.query("set datestyle='ISO';");
+		await client.query("SET client_encoding TO 'UTF-8';");
+		await client.query("SET bytea_output TO escape;");
+		await client.query('SET SEARCH_PATH TO "public","chado"');
 
 		var query_str = "SELECT * FROM public.cartogratree_analysis_data WHERE analysis_id = $1 AND variable_name LIKE 'studies_snp_%';";
-		var rows = pg_n_client.querySync(query_str,[analysis_id]);
+		// var rows = pg_n_client.querySync(query_str,[analysis_id]);
+		var qres = await client.query(query_str,[analysis_id]);
+		var rows = qres.rows;
 		var snps = [];
 		// go through each row which contains csv variable_data
 		// RISH: 11/8/2024 - So this gets all snps from all corresponding studies for this analysis
@@ -515,7 +606,8 @@ var generateRandomDouble = function(min, max) {
 			var snps_arr = variable_data.split(',');
 			snps = snps.concat(snps_arr);
 		}
-		pg_n_client.end();
+		// pg_n_client.end();
+		client.release();
 
 		// LIKELY DEPRECATED DUE TO HOW TPPS PULLS DATA INTO THE DB NOW
 		// Go through each snp and remove the last _ part from the snp
@@ -861,26 +953,33 @@ var generateRandomDouble = function(min, max) {
  * @param {object} response - Response object
  * @param {function} next - Next middleware function in the application"s request-response cycle   
  */
-exports.genotypes_snps_get_tree_ids_by_analysis_id = function(req, res, next) {
+exports.genotypes_snps_get_tree_ids_by_analysis_id = async function(req, res, next) {
 	try {
 		var analysis_id = req.body.analysis_id;
 		var studies = JSON.parse(req.body.studies);
 		console.log('req.body', req.body);
 		// Let us use query synchronized for procedural querying
-		var pg_n_client = new pg_native_client();
+		// var pg_n_client = new pg_native_client();
 
 		console.log('Connecting to database...');
-		pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		// pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		const client = await pool.connect();
 		//console.log(config.conf.host);
 		//console.log(config.conf.user);
 		//console.log(config.conf.password);
-		pg_n_client.querySync("set datestyle='ISO';");
-		pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
-		pg_n_client.querySync("SET bytea_output TO escape;");
-		pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+		// pg_n_client.querySync("set datestyle='ISO';");
+		// pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
+		// pg_n_client.querySync("SET bytea_output TO escape;");
+		// pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+		await client.query("set datestyle='ISO';");
+		await client.query("SET client_encoding TO 'UTF-8';");
+		await client.query("SET bytea_output TO escape;");
+		await client.query('SET SEARCH_PATH TO "public","chado"');
 
 		var query_str = "SELECT * FROM public.cartogratree_analysis_data WHERE analysis_id = $1 AND variable_name LIKE 'studies_snp_%';";
-		var rows = pg_n_client.querySync(query_str,[analysis_id]);
+		// var rows = pg_n_client.querySync(query_str,[analysis_id]);
+		var qres = await client.query(query_str,[analysis_id]);
+		var rows = qres.rows;
 		var snps = [];
 		// go through each row which contains csv variable_data
 		for(var i=0; i<rows.length; i++) {
@@ -923,10 +1022,13 @@ exports.genotypes_snps_get_tree_ids_by_analysis_id = function(req, res, next) {
 
 		var rows = [];
 		if(snps.length > 0) {
-			rows = pg_n_client.querySync(query_str,[]);
+			// rows = pg_n_client.querySync(query_str,[]);
+			qres = await client.query(query_str,[]);
+			rows = qres.rows;
 			console.log(rows);
 		}
-		pg_n_client.end();	
+		// pg_n_client.end();	
+		client.release();
 		res.send(JSON.stringify(rows));
 	}
 	catch (err) {
@@ -1472,7 +1574,7 @@ exports.genotypes_overlapping_markers_by_study_ids = function(req, res, next) {
  * @param {object} response - Response object
  * @param {function} next - Next middleware function in the application"s request-response cycle   
  */
-exports.phenotypes_pca = function(req, res, next) {
+exports.phenotypes_pca = async function(req, res, next) {
   try {
     console.log('phenotypes_pca');
     var results = {};
@@ -1515,28 +1617,38 @@ exports.phenotypes_pca = function(req, res, next) {
 
       console.log(query_str);
       // Let us use query synchronized for procedural querying
-      var pg_n_client = new pg_native_client();
+      // var pg_n_client = new pg_native_client();
+	  
 	  console.log('it came here 2');
 
       console.log('Connecting to database...');
-      pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
-      //console.log(config.conf.host);
+      // pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+      const client = await pool.connect();
+	  //console.log(config.conf.host);
       //console.log(config.conf.user);
       //console.log(config.conf.password);
-      pg_n_client.querySync("set datestyle='ISO';");
-      pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
-      pg_n_client.querySync("SET bytea_output TO escape;");
-      pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+      //   pg_n_client.querySync("set datestyle='ISO';");
+      //   pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
+      //   pg_n_client.querySync("SET bytea_output TO escape;");
+      //   pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+
+	  await client.query("set datestyle='ISO';");
+	  await client.query("SET client_encoding TO 'UTF-8';");
+	  await client.query("SET bytea_output TO escape;");
+	  await client.query('SET SEARCH_PATH TO "public","chado"');
 	  console.log('it came here 3');
 
-      var rows = pg_n_client.querySync(query_str,[]);
+      // var rows = pg_n_client.querySync(query_str,[]);
+	  var qres = await client.query(query_str,[]);
+	  var rows = qres.rows;
 	  console.log('it came here 4');
       rows_results = rows_results.concat(rows);
 	  console.log('it came here 5');
       // console.log('rows_results', JSON.stringify(rows_results));
       results['updated'] = true;
       // NOTE: ALWAYS REMEMBER TO CLOSE THE pg_n_client connection at the end!
-      pg_n_client.end();	
+      // pg_n_client.end();
+	  client.release();	
     }
 
     // Generate CSV like object (using the phenotype names as columns / attributes - NOT KEYS)
@@ -1786,7 +1898,7 @@ exports.environmental_scatter_plot = function(req, res, next) {
  * @param {object} response - Response object
  * @param {function} next - Next middleware function in the application"s request-response cycle   
  */
-  exports.analysis_insert_data = function(req, res, next) {
+  exports.analysis_insert_data = async function(req, res, next) {
 	var results = {
 		updated: false
 	};
@@ -1799,22 +1911,29 @@ exports.environmental_scatter_plot = function(req, res, next) {
 		var pg_n_client = new pg_native_client();
 
 		console.log('Connecting to database...');
-		pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		// pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		const client = await pool.connect();
 		//console.log(config.conf.host);
 		//console.log(config.conf.user);
 		//console.log(config.conf.password);
-		pg_n_client.querySync("set datestyle='ISO';");
-		pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
-		pg_n_client.querySync("SET bytea_output TO escape;");
-		pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+		// pg_n_client.querySync("set datestyle='ISO';");
+		// pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
+		// pg_n_client.querySync("SET bytea_output TO escape;");
+		// pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+
+		await client.query("set datestyle='ISO';");
+		await client.query("SET client_encoding TO 'UTF-8';");
+		await client.query("SET bytea_output TO escape;");
+		await client.query('SET SEARCH_PATH TO "public","chado"');
 
 		// Insert the row
 		var query_str = "INSERT INTO public.cartogratree_analysis_data (analysis_id, variable_name, variable_data) VALUES ($1,$2,$3);";
-		pg_n_client.querySync(query_str,[analysis_id, variable_name, variable_data]);
+		await client.query(query_str,[analysis_id, variable_name, variable_data]);
 		results['updated'] = true;
 
 		// NOTE: ALWAYS REMEMBER TO CLOSE THE pg_n_client connection at the end!
-		pg_n_client.end();
+		// pg_n_client.end();
+		client.release();
 	}
 	catch (err) {
 		console.log(err);
@@ -1830,7 +1949,7 @@ exports.environmental_scatter_plot = function(req, res, next) {
  * @param {object} response - Response object
  * @param {function} next - Next middleware function in the application"s request-response cycle   
  */
-exports.analysis_delete_data = function(req, res, next) {
+exports.analysis_delete_data = async function(req, res, next) {
 	var results = {
 		updated: false
 	};
@@ -1840,25 +1959,32 @@ exports.analysis_delete_data = function(req, res, next) {
 		var analysis_id = req.body.analysis_id;
 
 		// Let us use query synchronized for procedural querying
-		var pg_n_client = new pg_native_client();
+		// var pg_n_client = new pg_native_client();
+		
 
 		console.log('Connecting to database...');
-		pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		// pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		const client = await pool.connect();
 		//console.log(config.conf.host);
 		//console.log(config.conf.user);
 		//console.log(config.conf.password);
-		pg_n_client.querySync("set datestyle='ISO';");
-		pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
-		pg_n_client.querySync("SET bytea_output TO escape;");
-		pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+		// pg_n_client.querySync("set datestyle='ISO';");
+		// pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
+		// pg_n_client.querySync("SET bytea_output TO escape;");
+		// pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+		await client.query("set datestyle='ISO';");
+		await client.query("SET client_encoding TO 'UTF-8';");
+		await client.query("SET bytea_output TO escape;");
+		await client.query('SET SEARCH_PATH TO "public","chado"');
 
 		// Insert the row
 		var query_str = "DELETE FROM public.cartogratree_analysis_data WHERE analysis_id = $1 AND variable_name = $2;";
-		pg_n_client.querySync(query_str,[analysis_id, variable_name]);
+		await client.query(query_str,[analysis_id, variable_name]);
 		results['updated'] = true;
 
 		// NOTE: ALWAYS REMEMBER TO CLOSE THE pg_n_client connection at the end!
-		pg_n_client.end();
+		//pg_n_client.end();
+		client.release();
 	}
 	catch (err) {
 		console.log(err);
@@ -2273,17 +2399,22 @@ exports.treesnap_collection_lookup_by_tree_id = function(req,res,next) {
 		};
 
 		// Let us use query synchronized for procedural querying
-		var pg_n_client = new pg_native_client();
+		// var pg_n_client = new pg_native_client();
 
 		console.log('Connecting to database...');
-		pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		// pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		const client = await pool.connect();
 		//console.log(config.conf.host);
 		//console.log(config.conf.user);
 		//console.log(config.conf.password);
-		pg_n_client.querySync("set datestyle='ISO';");
-		pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
-		pg_n_client.querySync("SET bytea_output TO escape;");
-		pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+		// pg_n_client.querySync("set datestyle='ISO';");
+		// pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
+		// pg_n_client.querySync("SET bytea_output TO escape;");
+		// pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+		await client.query("set datestyle='ISO';");
+		await client.query("SET client_encoding TO 'UTF-8';");
+		await client.query("SET bytea_output TO escape;");
+		await client.query('SET SEARCH_PATH TO "public","chado"');
 
 
 		var analysis_id = req.body.analysis_id;
@@ -2293,11 +2424,12 @@ exports.treesnap_collection_lookup_by_tree_id = function(req,res,next) {
 		
 		// Delete the row if this already exists (just in case)
 		var query_str = "DELETE FROM cartogratree_analysis_data WHERE variable_name = $1 AND analysis_id = $2";
-		pg_n_client.querySync(query_str,[variable_name,analysis_id]);
+		await client.query(query_str,[variable_name,analysis_id]);
 		results['updated'] = true;
 
 		// NOTE: ALWAYS REMEMBER TO CLOSE THE pg_n_client connection at the end!
-		pg_n_client.end();
+		// pg_n_client.end();
+		client.release();
 				
 	}
 	catch(err) {
@@ -2321,17 +2453,22 @@ exports.treesnap_collection_lookup_by_tree_id = function(req,res,next) {
 		};
 
 		// Let us use query synchronized for procedural querying
-		var pg_n_client = new pg_native_client();
+		// var pg_n_client = new pg_native_client();
 
 		console.log('Connecting to database...');
-		pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		// pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		const client = await pool.connect();
 		//console.log(config.conf.host);
 		//console.log(config.conf.user);
 		//console.log(config.conf.password);
-		pg_n_client.querySync("set datestyle='ISO';");
-		pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
-		pg_n_client.querySync("SET bytea_output TO escape;");
-		pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+		// pg_n_client.querySync("set datestyle='ISO';");
+		// pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
+		// pg_n_client.querySync("SET bytea_output TO escape;");
+		// pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+		await client.query("set datestyle='ISO';");
+		await client.query("SET client_encoding TO 'UTF-8';");
+		await client.query("SET bytea_output TO escape;");
+		await client.query('SET SEARCH_PATH TO "public","chado"');
 
 
 		var analysis_id = req.body.analysis_id;
@@ -2341,11 +2478,12 @@ exports.treesnap_collection_lookup_by_tree_id = function(req,res,next) {
 		
 		// Delete the row if this already exists (just in case)
 		var query_str = "DELETE FROM cartogratree_analysis_data WHERE variable_name = $1 AND analysis_id = $2";
-		pg_n_client.querySync(query_str,[variable_name,analysis_id]);
+		await client.query(query_str,[variable_name,analysis_id]);
 		results['updated'] = true;
 
 		// NOTE: ALWAYS REMEMBER TO CLOSE THE pg_n_client connection at the end!
-		pg_n_client.end();
+		// pg_n_client.end();
+		client.release();
 				
 	}
 	catch(err) {
@@ -2367,17 +2505,22 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 			updated: false
 		};		
 		// Let us use query synchronized for procedural querying
-		var pg_n_client = new pg_native_client();
+		// var pg_n_client = new pg_native_client();
 
 		console.log('Connecting to database...');
-		pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		// pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		const client = await pool.connect();
 		//console.log(config.conf.host);
 		//console.log(config.conf.user);
 		//console.log(config.conf.password);
-		pg_n_client.querySync("set datestyle='ISO';");
-		pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
-		pg_n_client.querySync("SET bytea_output TO escape;");
-		pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+		// pg_n_client.querySync("set datestyle='ISO';");
+		// pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
+		// pg_n_client.querySync("SET bytea_output TO escape;");
+		// pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+		await client.query("set datestyle='ISO';");
+		await client.query("SET client_encoding TO 'UTF-8';");
+		await client.query("SET bytea_output TO escape;");
+		await client.query('SET SEARCH_PATH TO "public","chado"');
 
 
 		var analysis_id = req.body.analysis_id;
@@ -2390,7 +2533,7 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 
 			// Delete the row if this already exists (just in case)
 			var query_str = "DELETE FROM cartogratree_analysis_data WHERE variable_name = $1 AND analysis_id = $2";
-			pg_n_client.querySync(query_str,[variable_name,analysis_id]);
+			await client.query(query_str,[variable_name,analysis_id]);
 
 			var query_str = "";
 			query_str += "select markers from (";
@@ -2406,19 +2549,22 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 
 			// results['query_str'] = query_str;
 			
-			var rows = pg_n_client.querySync(query_str);
+			// var rows = pg_n_client.querySync(query_str);
+			var qres = await client.query(query_str);
+			var rows = qres.rows;
 			if(rows.length > 0) {
 				// overlap_none[study_id] = rows[0]['cardinality'];
 				var markers = rows[0].markers;
 
 				var query_str = "INSERT INTO cartogratree_analysis_data (analysis_id, variable_name, variable_data)";
 				query_str += " VALUES ($1,$2,$3)";
-				pg_n_client.querySync(query_str, [analysis_id,variable_name,markers]);
+				await client.query(query_str, [analysis_id,variable_name,markers]);
 				results['updated'] = true;
 			}
 		} 
 		// NOTE: ALWAYS REMEMBER TO CLOSE THE pg_n_client connection at the end!
-		pg_n_client.end();
+		// pg_n_client.end();
+		client.release();
 	}
 	catch (err) {
 		console.log(err);
@@ -2443,14 +2589,19 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 		var pg_n_client = new pg_native_client();
 
 		console.log('Connecting to database...');
-		pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		// pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		const client = await pool.connect();
 		//console.log(config.conf.host);
 		//console.log(config.conf.user);
 		//console.log(config.conf.password);
-		pg_n_client.querySync("set datestyle='ISO';");
-		pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
-		pg_n_client.querySync("SET bytea_output TO escape;");
-		pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+		// pg_n_client.querySync("set datestyle='ISO';");
+		// pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
+		// pg_n_client.querySync("SET bytea_output TO escape;");
+		// pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+		await client.query("set datestyle='ISO';");
+		await client.query("SET client_encoding TO 'UTF-8';");
+		await client.query("SET bytea_output TO escape;");
+		await client.query('SET SEARCH_PATH TO "public","chado"');
 
 		console.log('req.body:' + JSON.stringify(req.body));
 
@@ -2460,20 +2611,22 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 		
 		// Delete the row if this already exists (just in case)
 		var query_str = "DELETE FROM cartogratree_analysis_data WHERE variable_name = $1 AND analysis_id = $2";
-		pg_n_client.querySync(query_str,[variable_name,analysis_id]);
+		await client.query(query_str,[variable_name,analysis_id]);
 
 
 		// Get the markers that overlap
 		var query_str = "select accession, markers from chado.markers_and_studies_names where accession in ($1) ";
 		// query_str += " order by cardinality desc limit 1";
 
-		var rows = pg_n_client.querySync(query_str,[study_id]);
+		// var rows = pg_n_client.querySync(query_str,[study_id]);
+		var qres = await client.query(query_str,[study_id]);
+		var rows = qres.rows;
 		if(rows.length > 0) {
 			var markers = rows[0].markers;
 			console.log(markers);
 			var query_str = "INSERT INTO cartogratree_analysis_data (analysis_id, variable_name, variable_data)";
 			query_str += " VALUES ($1,$2,$3)";
-			pg_n_client.querySync(query_str, [analysis_id,variable_name,markers]);
+			await client.query(query_str, [analysis_id,variable_name,markers]);
 			results['updated'] = true;
 
 			// This code was used to verify that the data gets inserted into the database
@@ -2486,7 +2639,8 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 		}
 
 		// NOTE: ALWAYS REMEMBER TO CLOSE THE pg_n_client connection at the end!
-		pg_n_client.end();
+		//pg_n_client.end();
+		client.release();
 
 	}
 	catch (err) {
@@ -2510,17 +2664,22 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 		};
 
 		// Let us use query synchronized for procedural querying
-		var pg_n_client = new pg_native_client();
+		// var pg_n_client = new pg_native_client();
 
 		console.log('Connecting to database...');
-		pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		// pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		const client = await pool.connect();
 		//console.log(config.conf.host);
 		//console.log(config.conf.user);
 		//console.log(config.conf.password);
-		pg_n_client.querySync("set datestyle='ISO';");
-		pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
-		pg_n_client.querySync("SET bytea_output TO escape;");
-		pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+		// pg_n_client.querySync("set datestyle='ISO';");
+		// pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
+		// pg_n_client.querySync("SET bytea_output TO escape;");
+		// pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+		await client.query("set datestyle='ISO';");
+		await client.query("SET client_encoding TO 'UTF-8';");
+		await client.query("SET bytea_output TO escape;");
+		await client.query('SET SEARCH_PATH TO "public","chado"');
 
 		console.log('req.body:' + JSON.stringify(req.body));
 
@@ -2530,12 +2689,13 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 		
 		// Delete the row if this already exists (just in case)
 		var query_str = "DELETE FROM cartogratree_analysis_data WHERE variable_name = $1 AND analysis_id = $2";
-		pg_n_client.querySync(query_str,[variable_name,analysis_id]);
+		await client.query(query_str,[variable_name,analysis_id]);
 
 		results['updated'] = true;
 
 		// NOTE: ALWAYS REMEMBER TO CLOSE THE pg_n_client connection at the end!
-		pg_n_client.end();
+		// pg_n_client.end();
+		client.release();
 
 	}
 	catch (err) {
@@ -2559,17 +2719,22 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 		};
 
 		// Let us use query synchronized for procedural querying
-		var pg_n_client = new pg_native_client();
+		// var pg_n_client = new pg_native_client();
 
 		console.log('Connecting to database...');
-		pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		//pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		const client = await pool.connect();
 		//console.log(config.conf.host);
 		//console.log(config.conf.user);
 		//console.log(config.conf.password);
-		pg_n_client.querySync("set datestyle='ISO';");
-		pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
-		pg_n_client.querySync("SET bytea_output TO escape;");
-		pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+		// pg_n_client.querySync("set datestyle='ISO';");
+		// pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
+		// pg_n_client.querySync("SET bytea_output TO escape;");
+		// pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+		await client.query("set datestyle='ISO';");
+		await client.query("SET client_encoding TO 'UTF-8';");
+		await client.query("SET bytea_output TO escape;");
+		await client.query('SET SEARCH_PATH TO "public","chado"');
 
 
 		var analysis_id = req.body.analysis_id;
@@ -2578,7 +2743,7 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 		
 		// Delete the row if this already exists (just in case)
 		var query_str = "DELETE FROM cartogratree_analysis_data WHERE variable_name = $1 AND analysis_id = $2";
-		pg_n_client.querySync(query_str,[variable_name,analysis_id]);
+		await client.query(query_str,[variable_name,analysis_id]);
 
 
 		// Get the markers that overlap
@@ -2600,13 +2765,15 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 		// results['query_str'] = query_str;
 		// console.log(query_str);
 
-		var rows = pg_n_client.querySync(query_str);
+		// var rows = pg_n_client.querySync(query_str);
+		var qres = await client.query(query_str);
+		var rows = qres.rows;
 		if(rows.length > 0) {
 			var markers = rows[0].markers;
 			console.log(markers);
 			var query_str = "INSERT INTO cartogratree_analysis_data (analysis_id, variable_name, variable_data)";
 			query_str += " VALUES ($1,$2,$3)";
-			pg_n_client.querySync(query_str, [analysis_id,variable_name,markers]);
+			await client.query(query_str, [analysis_id,variable_name,markers]);
 			results['updated'] = true;
 
 			// This code was used to verify that the data gets inserted into the database
@@ -2619,7 +2786,8 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 		}
 
 		// NOTE: ALWAYS REMEMBER TO CLOSE THE pg_n_client connection at the end!
-		pg_n_client.end();
+		// pg_n_client.end();
+		client.release();
 
 	}
 	catch (err) {
@@ -2642,17 +2810,18 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 		};
 
 		// Let us use query synchronized for procedural querying
-		var pg_n_client = new pg_native_client();
+		// var pg_n_client = new pg_native_client();
 
 		console.log('Connecting to database...');
-		pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		// pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		const client = await pool.connect();
 		//console.log(config.conf.host);
 		//console.log(config.conf.user);
 		//console.log(config.conf.password);
-		pg_n_client.querySync("set datestyle='ISO';");
-		pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
-		pg_n_client.querySync("SET bytea_output TO escape;");
-		pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+		await client.query("set datestyle='ISO';");
+		await client.query("SET client_encoding TO 'UTF-8';");
+		await client.query("SET bytea_output TO escape;");
+		await client.query('SET SEARCH_PATH TO "public","chado"');
 
 
 		var analysis_id = req.query.analysis_id;
@@ -2660,11 +2829,13 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 
 		// Find the user_id of this user, using the username
 		var query_str = "UPDATE cartogratree_analysis_index SET analysis_name = $1 WHERE analysis_id = $2";
-		var rows = pg_n_client.querySync(query_str, [analysis_name, analysis_id]);
+		var qres = await client.querySync(query_str, [analysis_name, analysis_id]);
+		var rows = qres.rows;
 		results['updated'] = true;
 
 		// NOTE: ALWAYS REMEMBER TO CLOSE THE pg_n_client connection at the end!
-		pg_n_client.end();
+		//pg_n_client.end();
+		client.release();
 	}
 	catch (err) {
 		console.log(err);
@@ -2689,22 +2860,34 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 		var user_email = req.query.user_email;
 		var user_id = -1;
 
+
+
 		// Let us use query synchronized for procedural querying
-		var pg_n_client = new pg_native_client();
+		// var pg_n_client = new pg_native_client();
 
 		console.log('Connecting to database...');
-		pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		// pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+
+		const client = await pool.connect();
+		
 		//console.log(config.conf.host);
 		//console.log(config.conf.user);
 		//console.log(config.conf.password);
-		pg_n_client.querySync("set datestyle='ISO';");
-		pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
-		pg_n_client.querySync("SET bytea_output TO escape;");
-		pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+		// pg_n_client.querySync("set datestyle='ISO';");
+		// pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
+		// pg_n_client.querySync("SET bytea_output TO escape;");
+		// pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+
+		await client.query("set datestyle='ISO';");
+		await client.query("SET client_encoding TO 'UTF-8';");
+		await client.query("SET bytea_output TO escape;");
+		await client.query('SET SEARCH_PATH TO "public","chado"');
 
 		// Find the user_id of this user, using the username
 		var query_str = "SELECT * FROM users WHERE mail ILIKE $1 LIMIT 1";
-		var rows = pg_n_client.querySync(query_str, [user_email]);
+		// var rows = pg_n_client.querySync(query_str, [user_email]);
+		var qres = await client.query(query_str, [user_email]);
+		var rows = qres.rows;
 		if(rows.length > 0) {
 			console.log('User id was found');
 			user_id = rows[0].uid;
@@ -2713,11 +2896,13 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 
 		// Ensure the user id was found (valid)
 		if(user_id != -1) {
-			var query_str = "INSERT INTO cartogratree_analysis_index (user_id, analysis_name, analysis_created_time) ";
+			var query_str = "INSERT INTO public.cartogratree_analysis_index (user_id, analysis_name, analysis_created_time) ";
 			query_str += " VALUES ($1,$2,$3) returning analysis_id;";
 			console.log(query_str);
 			var time_created = Math.floor(Date.now() / 1000);
-			var rows = pg_n_client.querySync(query_str, [user_id, 'Untitled', time_created]);
+			// var rows = pg_n_client.querySync(query_str, [user_id, 'Untitled', time_created]);
+			var qres = await client.query(query_str, [user_id, 'Untitled', time_created]);
+			var rows = qres.rows;
 			if(rows.length > 0) {
 				results['analysis_id'] = rows[0].analysis_id;
 			}
@@ -2728,7 +2913,9 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 		}
 
 		// NOTE: ALWAYS REMEMBER TO CLOSE THE pg_n_client connection at the end!
-		pg_n_client.end();
+		// pg_n_client.end();
+
+		client.release();
 	}
 	catch (err) {
 		console.log(err);
@@ -2748,59 +2935,66 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
  */ 
  exports.genotypes_snps_overlaps_by_studies_views_venn_format = async function(req, res, next) {
 	try {
-	   // First we need to get permutations of the studies
-	   // console.log(req.body);
+		// First we need to get permutations of the studies
+		// console.log(req.body);
 
-	   // Get study_ids_arr from the req.body
-	   var study_ids_arr = JSON.parse(req.body.study_ids);
-	   // console.log(study_ids_arr);
+		// Get study_ids_arr from the req.body
+		var study_ids_arr = JSON.parse(req.body.study_ids);
+		// console.log(study_ids_arr);
 
-   // Let us use query synchronized for procedural querying
-   var pg_n_client = new pg_native_client();
+   		// Let us use query synchronized for procedural querying
+   		// var pg_n_client = new pg_native_client();
    
-   console.log('Connecting to database...');
-   pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
-   //console.log(config.conf.host);
-   //console.log(config.conf.user);
-   //console.log(config.conf.password);
-   pg_n_client.querySync("set datestyle='ISO';");
-   pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
-   pg_n_client.querySync("SET bytea_output TO escape;");
-   pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');    
+		console.log('Connecting to database...');
+		// pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		const client = await pool.connect();
+		//console.log(config.conf.host);
+		//console.log(config.conf.user);
+		//console.log(config.conf.password);
+		// pg_n_client.querySync("set datestyle='ISO';");
+		// pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
+		// pg_n_client.querySync("SET bytea_output TO escape;");
+		// pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');    
+		await client.query("set datestyle='ISO';");
+		await client.query("SET client_encoding TO 'UTF-8';");
+		await client.query("SET bytea_output TO escape;");
+		await client.query('SET SEARCH_PATH TO "public","chado"');  
 
 
-   // STEP 1 - Overlap All - number of markers shared between all studies
-   var total_overlaps = 0;
-   var query_str = "select accessions, cardinality(markers) from chado.test_studies_marker_overlap WHERE ";
-   for (var i=0; i<study_ids_arr.length; i++) {
-	 var study_id = study_ids_arr[i];
-	 if (i == 0) {
-	   query_str += "'" + study_id + "' = ANY(accessions)";
-	 }
-	 else {
-	   query_str += " AND '" + study_id + "' = ANY(accessions)";
-	 }
-   }
-   query_str += " order by cardinality desc limit 1";
+		// STEP 1 - Overlap All - number of markers shared between all studies
+		var total_overlaps = 0;
+		var query_str = "select accessions, cardinality(markers) from chado.test_studies_marker_overlap WHERE ";
+		for (var i=0; i<study_ids_arr.length; i++) {
+			var study_id = study_ids_arr[i];
+			if (i == 0) {
+			query_str += "'" + study_id + "' = ANY(accessions)";
+			}
+			else {
+			query_str += " AND '" + study_id + "' = ANY(accessions)";
+			}
+		}
+		query_str += " order by cardinality desc limit 1";
    
-   // Perform the query to get the results of total_overlaps
-   var rows = pg_n_client.querySync(query_str);
-   if(rows.length > 0) {
-	 total_overlaps = rows[0].cardinality;
-   }
-   console.log('Total overlaps = ' + total_overlaps);
-   // Generate the overlap_all object
-   var overlap_all = {};
-   for(var i=0; i<study_ids_arr.length; i++) {
-	 var study_id = study_ids_arr[i];
-	 overlap_all[study_id] = total_overlaps;
-   }
-   console.log('overlap_all', JSON.stringify(overlap_all));
+		// Perform the query to get the results of total_overlaps
+		// var rows = pg_n_client.querySync(query_str);
+		var qres = await client.querySync(query_str);
+		var rows = qres.rows;
+		if(rows.length > 0) {
+			total_overlaps = rows[0].cardinality;
+		}
+		console.log('Total overlaps = ' + total_overlaps);
+		// Generate the overlap_all object
+		var overlap_all = {};
+		for(var i=0; i<study_ids_arr.length; i++) {
+			var study_id = study_ids_arr[i];
+			overlap_all[study_id] = total_overlaps;
+		}
+		console.log('overlap_all', JSON.stringify(overlap_all));
 
 
-   // SETP 1.5 GET OVERLAPS BETWEEN PAIRS OF STUDIES
-   // Get the pairs first
-// Generate all permutations
+		// SETP 1.5 GET OVERLAPS BETWEEN PAIRS OF STUDIES
+		// Get the pairs first
+		// Generate all permutations
 
 	var result_pairs = pairwise(study_ids_arr);
 	console.log(result_pairs);
@@ -2824,7 +3018,9 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 		// console.log(query_str);
 		
 		// // Perform the query to get the results of total_overlaps between pair
-		var rows = pg_n_client.querySync(query_str);
+		// var rows = pg_n_client.querySync(query_str);
+		var qres = await client.query(query_str);
+		var rows = qres.rows;
 		if(rows.length > 0) {
 			pair_result_object['sets'] = pair;
 			pair_result_object['size'] = rows[0].cardinality;
@@ -2854,7 +3050,9 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
    query_str += ") order by cardinality;"
    
    // Perform the query to get the results of total snps per studies (each row has the total per study)
-   var rows = pg_n_client.querySync(query_str);
+   // var rows = pg_n_client.querySync(query_str);
+   var qres = await client.querySync(query_str);
+   var rows = qres.rows;
    for(var i=0; i<rows.length; i++) {
 	 var study_id = rows[i]['accession'];
 	 total_snps_per_study[study_id] = rows[i]['cardinality'];
@@ -2911,7 +3109,9 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 	 query_str += ") table_overlap_all)) count_table";
 
 	 // console.log(query_str);
-	 var rows = pg_n_client.querySync(query_str);
+	 // var rows = pg_n_client.querySync(query_str);
+	 var qres = await client.query(query_str);
+	 var rows = qres.rows;
 	 if(rows.length > 0) {
 	   overlap_some[anchor_study_id] = rows[0]['c1'];
 	 }
@@ -2950,7 +3150,9 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 	 query_str += "x)";
 	 query_str += "y;";
 	 
-	 var rows = pg_n_client.querySync(query_str);
+	 // var rows = pg_n_client.querySync(query_str);
+	 var qres = client.query(query_str);
+	 var rows = qres.rows;
 	 if(rows.length > 0) {
 	   overlap_none[study_id] = rows[0]['cardinality'];
 	 }      
@@ -3014,13 +3216,14 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 	// }
 
    // NOTE: ALWAYS REMEMBER TO CLOSE THE pg_n_client connection at the end!
-   pg_n_client.end();
+   // pg_n_client.end();
+   		client.release();
 
-	   res.send(JSON.stringify(results));
+	   	res.send(JSON.stringify(results));
 	}
 	catch (err) { 
 		try {
-			pg_n_client.end();
+			client.release();
 		}
 		catch (err2) {
 
@@ -3028,6 +3231,8 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 		console.log(err) 
 	}
 }
+
+
 
 /**
  * This should return the numbers of overlaps_all, overlaps_some, overlaps_none
@@ -3046,17 +3251,22 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 		// console.log(study_ids_arr);
 
     // Let us use query synchronized for procedural querying
-    var pg_n_client = new pg_native_client();
+    // var pg_n_client = new pg_native_client();
     
     console.log('Connecting to database...');
-    pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
-    //console.log(config.conf.host);
+    // pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+    const client = await pool.connect();
+	//console.log(config.conf.host);
     //console.log(config.conf.user);
     //console.log(config.conf.password);
-    pg_n_client.querySync("set datestyle='ISO';");
-    pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
-    pg_n_client.querySync("SET bytea_output TO escape;");
-    pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');    
+    // pg_n_client.querySync("set datestyle='ISO';");
+    // pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
+    // pg_n_client.querySync("SET bytea_output TO escape;");
+    // pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');   
+	await client.query("set datestyle='ISO';");
+    await client.query("SET client_encoding TO 'UTF-8';");
+    await client.query("SET bytea_output TO escape;");
+    await client.query('SET SEARCH_PATH TO "public","chado"');  
 
 
     // STEP 1 - Overlap All - number of markers shared between all studies
@@ -3074,7 +3284,9 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
     query_str += " order by cardinality desc limit 1";
     
     // Perform the query to get the results of total_overlaps
-    var rows = pg_n_client.querySync(query_str);
+    // var rows = pg_n_client.querySync(query_str);
+	var qres = await client.query(query_str);
+	var rows = qres.rows;
     if(rows.length > 0) {
       total_overlaps = rows[0].cardinality;
     }
@@ -3103,7 +3315,9 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
     query_str += ") order by cardinality;"
     
     // Perform the query to get the results of total snps per studies (each row has the total per study)
-    var rows = pg_n_client.querySync(query_str);
+    // var rows = pg_n_client.querySync(query_str);
+	var qres = await client.query(query_str);
+	var rows = qres.rows;
     for(var i=0; i<rows.length; i++) {
       var study_id = rows[i]['accession'];
       total_snps_per_study[study_id] = rows[i]['cardinality'];
@@ -3160,7 +3374,9 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
       query_str += ") table_overlap_all)) count_table";
 
       // console.log(query_str);
-      var rows = pg_n_client.querySync(query_str);
+      // var rows = pg_n_client.querySync(query_str);
+	  var qres = await client.query(query_str);
+	  var rows = qres.rows;
       if(rows.length > 0) {
         overlap_some[anchor_study_id] = rows[0]['c1'];
       }
@@ -3184,7 +3400,9 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
       query_str += "x)";
       query_str += "y;";
       
-      var rows = pg_n_client.querySync(query_str);
+      // var rows = pg_n_client.querySync(query_str);
+	  var qres = await client.query(query_str);
+	  var rows = qres.rows;
       if(rows.length > 0) {
         overlap_none[study_id] = rows[0]['cardinality'];
       }      
@@ -3223,13 +3441,15 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 		// }
 
     // NOTE: ALWAYS REMEMBER TO CLOSE THE pg_n_client connection at the end!
-    pg_n_client.end();
+    // pg_n_client.end();
+	client.release();
 
 		res.send(JSON.stringify(results));
 	 }
 	 catch (err) {
 		try {
-			pg_n_client.end();
+			// pg_n_client.end();
+			client.release();
 		} 
 		catch (err2) {
 			console.log(err2);
@@ -3569,6 +3789,9 @@ exports.genotypes_variant_filtering_panel_filter_by_genotypes = function(req, re
 		var workspace_name = req.body.workspace_name;
 		var workspace_dir = '/isg/treegenes/cartograplant_analysis_workspaces/' + user_id + '/' + workspace_name;
 		var vcf_location = req.body.vcf_location;
+		if (!fs.existsSync(vcf_location)) {
+			vcf_location = vcf_location + '.gz';
+		}
 		var analysis_id = req.body.analysis_id;
 		var study_accession = req.body.study_accession;
 		var directory = '/isg/treegenes/cartograplant_analysis/' + analysis_id + '/' + study_accession + '/variant-filtering-pipeline/filter-by-genotypes';
@@ -4581,22 +4804,29 @@ exports.dryad_consolidate_trees_from_treegenes = async function(req, res, next) 
 				}			
 			});
 		*/	
-		setTimeout(function() {
-			var pg_n_client = new pg_native_client();
+		setTimeout(async function() {
+			// var pg_n_client = new pg_native_client();
 			try {
 				console.log('Connecting...');
-				pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+				// pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+				const client = await pool.connect();
 				//console.log(config.conf.host);
 				//console.log(config.conf.user);
 				//console.log(config.conf.password);
-				pg_n_client.querySync("set datestyle='ISO';");
-				pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
-				pg_n_client.querySync("SET bytea_output TO escape;");
-				pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+				// pg_n_client.querySync("set datestyle='ISO';");
+				// pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
+				// pg_n_client.querySync("SET bytea_output TO escape;");
+				// pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+				await client.query("set datestyle='ISO';");
+				await client.query("SET client_encoding TO 'UTF-8';");
+				await client.query("SET bytea_output TO escape;");
+				await client.query('SET SEARCH_PATH TO "public","chado"');
 				
 				var filter = "dryad";
 				//var rows = pg_n_client.querySync("SELECT accession FROM tpps_submission where status ILIKE 'approved' AND (POSITION('dryad' IN submission_state::TEXT) > 0)");
-				var rows = pg_n_client.querySync("SELECT accession FROM tpps_submission where status ILIKE 'approved' AND submission_state::TEXT ILIKE '%dryad%';");
+				// var rows = pg_n_client.querySync("SELECT accession FROM tpps_submission where status ILIKE 'approved' AND submission_state::TEXT ILIKE '%dryad%';");
+				var qres = await client.query("SELECT accession FROM tpps_submission where status ILIKE 'approved' AND submission_state::TEXT ILIKE '%dryad%';");
+				var rows = qres.rows;
 				console.log('Found ' + rows.length + ' DRYAD studies');
 				if(rows.length > 0) {
 					for(i=0; i<rows.length; i++) {
@@ -4605,17 +4835,20 @@ exports.dryad_consolidate_trees_from_treegenes = async function(req, res, next) 
 						//Update ct_trees
 						var sql_update = "UPDATE ct_trees SET source_id=2 WHERE uniquename ILIKE '" + accession + "%'";
 						//console.log(sql_update);
-						pg_n_client.querySync(sql_update);
+						// pg_n_client.querySync(sql_update);
+						await client.query(sql_update);
 						//console.log(rows[i]);
 					}
 				}
+				client.release();
 			}
 			catch(err) {
 				console.log(err);
 			}
 			// Try to close the connection
 			try {
-				pg_n_client.end();
+				// pg_n_client.end();
+				client.release();
 			}
 			catch (err) {
 
@@ -4633,12 +4866,15 @@ exports.dryad_consolidate_trees_from_treegenes = async function(req, res, next) 
 exports.treesnap_consolidate_subkingdoms = async function(req, res, next) {
 	var api_superuser_password = req.query.asup;
 	if(config.conf.api_superuser_password == api_superuser_password) {
-		setTimeout(function() {
-			var pg_n_client = new pg_native_client();
+		setTimeout(async function() {
+			// var pg_n_client = new pg_native_client();
 			try {
 				var species_without_organismprop_subkingdom_data = "";
-				pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
-				var rows = pg_n_client.querySync('SELECT DISTINCT(genus,species), genus, species FROM ct_trees_treesnap WHERE subkingdom IS NULL AND source_id = 1;');
+				// pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+				const client = await pool.connect();
+				// var rows = pg_n_client.querySync('SELECT DISTINCT(genus,species), genus, species FROM ct_trees_treesnap WHERE subkingdom IS NULL AND source_id = 1;');
+				var qres = await client.query('SELECT DISTINCT(genus,species), genus, species FROM ct_trees_treesnap WHERE subkingdom IS NULL AND source_id = 1;');
+				var rows = qres.rows;
 				if(rows.length > 0) {
 					for(i=0; i<rows.length; i++) {
 						genus = rows[i].genus;
@@ -4648,7 +4884,9 @@ exports.treesnap_consolidate_subkingdoms = async function(req, res, next) {
 						//console.log('RESULTS1:' + genus + ':' + species + ':' +  species_name);
 						
 						//This will find the subkingdom if one exists
-						var rows2 = pg_n_client.querySync("SELECT * FROM chado.organism LEFT JOIN chado.organismprop ON chado.organism.organism_id = chado.organismprop.organism_id WHERE genus ILIKE '" + genus + "' AND organismprop.type_id = 35 LIMIT 1;");
+						// var rows2 = pg_n_client.querySync("SELECT * FROM chado.organism LEFT JOIN chado.organismprop ON chado.organism.organism_id = chado.organismprop.organism_id WHERE genus ILIKE '" + genus + "' AND organismprop.type_id = 35 LIMIT 1;");
+						var qres2 = await client.query("SELECT * FROM chado.organism LEFT JOIN chado.organismprop ON chado.organism.organism_id = chado.organismprop.organism_id WHERE genus ILIKE '" + genus + "' AND organismprop.type_id = 35 LIMIT 1;");
+						var rows2 = qres2.rows;
 						if(rows2.length > 0) {
 							//If it reaches here, it's only one record found since we used LIMIT 1 above
 							for(j=0; j<rows2.length; j++) {
@@ -4663,12 +4901,12 @@ exports.treesnap_consolidate_subkingdoms = async function(req, res, next) {
 								//pg_n_client.querySync("UPDATE ct_trees SET subkingdom = '" + temp_subkingdom + "' WHERE genus ILIKE '" + genus + "' AND species ILIKE '" + species + "' AND subkingdom IS NULL");
 								
 								console.log('Updating all records where subkingdom is null and genus is:' + genus + '. NEW SUBKINGDOM:' + temp_subkingdom);
-								pg_n_client.querySync("UPDATE ct_trees_treesnap SET subkingdom = '" + temp_subkingdom + "' WHERE genus ILIKE '" + genus + "' AND subkingdom IS NULL AND source_id=1;");
+								await client.query("UPDATE ct_trees_treesnap SET subkingdom = '" + temp_subkingdom + "' WHERE genus ILIKE '" + genus + "' AND subkingdom IS NULL AND source_id=1;");
 								if(temp_subkingdom == 'gymnosperm') {
-									pg_n_client.querySync("UPDATE ct_trees_treesnap SET icon_type=4 where subkingdom='gymnosperm' AND genus ILIKE '" + genus +"' AND source_id=1;");
+									await client.query("UPDATE ct_trees_treesnap SET icon_type=4 where subkingdom='gymnosperm' AND genus ILIKE '" + genus +"' AND source_id=1;");
 								}
 								else if(temp_subkingdom == 'angiosperm') {
-									pg_n_client.querySync("UPDATE ct_trees_treesnap SET icon_type=5 where subkingdom='angiosperm' AND genus ILIKE '" + genus + "' AND source_id=1;");
+									await client.query("UPDATE ct_trees_treesnap SET icon_type=5 where subkingdom='angiosperm' AND genus ILIKE '" + genus + "' AND source_id=1;");
 								}
 							}
 
@@ -4685,15 +4923,16 @@ exports.treesnap_consolidate_subkingdoms = async function(req, res, next) {
 						}
 					}
 				}
-				pg_n_client.querySync("UPDATE ct_trees_treesnap SET subkingdom = 'angiosperms' WHERE genus ILIKE 'acer' AND subkingdom IS NULL AND source_id=1;");
-				pg_n_client.querySync("UPDATE ct_trees_treesnap SET subkingdom = 'gymnosperms' WHERE genus ILIKE 'pinus' AND subkingdom IS NULL AND source_id=1;");
+				await client.query("UPDATE ct_trees_treesnap SET subkingdom = 'angiosperms' WHERE genus ILIKE 'acer' AND subkingdom IS NULL AND source_id=1;");
+				await client.query("UPDATE ct_trees_treesnap SET subkingdom = 'gymnosperms' WHERE genus ILIKE 'pinus' AND subkingdom IS NULL AND source_id=1;");
 				console.log('Saving failed species to ' + __dirname + '/info_species_without_organismprop_subkingdom_data.txt');
 				fs.writeFile(__dirname + '/info_species_without_organismprop_subkingdom_data.txt', species_without_organismprop_subkingdom_data, function (err) {
 				  if (err) throw err;
 				  console.log('Saved!');
 				});
 				species_without_organismprop_subkingdom_data = "";
-				pg_n_client.end();
+				// pg_n_client.end();
+				client.release();
 			}
 			catch(err) {
 				console.log(err);
@@ -4711,12 +4950,15 @@ exports.treesnap_consolidate_subkingdoms = async function(req, res, next) {
 exports.treesnap_consolidate_families = async function(req, res, next) {
 	var api_superuser_password = req.query.asup;
 	if(config.conf.api_superuser_password == api_superuser_password) {
-		setTimeout(function() {
-			var pg_n_client = new pg_native_client();
+		setTimeout(async function() {
+			// var pg_n_client = new pg_native_client();
 			try {
 				//var species_without_organismprop_subkingdom_data = "";
-				pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
-				var rows = pg_n_client.querySync('SELECT DISTINCT(genus,species), genus, species FROM ct_trees_treesnap WHERE family IS NULL AND source_id = 1;');
+				// pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+				const client = await pool.connect();
+				// var rows = pg_n_client.querySync('SELECT DISTINCT(genus,species), genus, species FROM ct_trees_treesnap WHERE family IS NULL AND source_id = 1;');
+				var qres = await client.query('SELECT DISTINCT(genus,species), genus, species FROM ct_trees_treesnap WHERE family IS NULL AND source_id = 1;');
+				var rows = qres.rows;
 				if(rows.length > 0) {
 					for(i=0; i<rows.length; i++) {
 						genus = rows[i].genus;
@@ -4726,7 +4968,9 @@ exports.treesnap_consolidate_families = async function(req, res, next) {
 						//console.log('RESULTS1:' + genus + ':' + species + ':' +  species_name);
 						
 						//This will find the subkingdom if one exists
-						var rows2 = pg_n_client.querySync("SELECT * FROM chado.organism LEFT JOIN chado.organismprop ON chado.organism.organism_id = chado.organismprop.organism_id WHERE genus ILIKE '" + genus + "' AND organismprop.type_id = 10 LIMIT 1;");
+						// var rows2 = pg_n_client.querySync("SELECT * FROM chado.organism LEFT JOIN chado.organismprop ON chado.organism.organism_id = chado.organismprop.organism_id WHERE genus ILIKE '" + genus + "' AND organismprop.type_id = 10 LIMIT 1;");
+						var qres2 = await client.query("SELECT * FROM chado.organism LEFT JOIN chado.organismprop ON chado.organism.organism_id = chado.organismprop.organism_id WHERE genus ILIKE '" + genus + "' AND organismprop.type_id = 10 LIMIT 1;");
+						var rows2 = qres2.rows;
 						if(rows2.length > 0) {
 							//If it reaches here, it's only one record found since we used LIMIT 1 above
 							for(j=0; j<rows2.length; j++) {
@@ -4741,7 +4985,7 @@ exports.treesnap_consolidate_families = async function(req, res, next) {
 								//pg_n_client.querySync("UPDATE ct_trees SET subkingdom = '" + temp_subkingdom + "' WHERE genus ILIKE '" + genus + "' AND species ILIKE '" + species + "' AND subkingdom IS NULL");
 								
 								console.log('Updating all records where family is null and genus is:' + genus + '. NEW Family:' + temp_family);
-								pg_n_client.querySync("UPDATE ct_trees_treesnap SET family = '" + temp_family + "' WHERE genus ILIKE '" + genus + "' AND family IS NULL AND source_id=1;");
+								await client.query("UPDATE ct_trees_treesnap SET family = '" + temp_family + "' WHERE genus ILIKE '" + genus + "' AND family IS NULL AND source_id=1;");
 							}
 						}
 						else {
@@ -4768,7 +5012,8 @@ exports.treesnap_consolidate_families = async function(req, res, next) {
 				});
 				species_without_organismprop_subkingdom_data = "";
 				*/
-				pg_n_client.end();
+				// pg_n_client.end();
+				client.release();
 			}
 			catch(err) {
 				console.log(err);
@@ -4867,6 +5112,11 @@ exports.force_reload_mama = async function(req, res, next) {
 	if(config.conf.api_superuser_password == api_superuser_password) {	
 		ct_cache.clear();		
 
+		console.log("CLEAR MAMA TREES");
+		utils.mama_ash_eab_surveys_clear_trees();
+		console.log("CLEAR MAMA PHENOTYPES");
+		utils.mama_ash_eab_surveys_clear_phenotypes();
+
 		console.log('Performing MAMA LOAD');
 
 
@@ -4879,46 +5129,56 @@ exports.force_reload_mama = async function(req, res, next) {
 			})
 		});
 
-		try {
-			var url = "https://anecdata.org/rest_observations_v1.json?project_id=316";
-			console.log('URL:' + url);
-			var config2 = {
-				method: 'get',
-				url: url,
-				// headers: {
-				// 	"Accept": "application/json",
-				// }
-			}
-			// console.log(config);
-			axios_instance(config2).then(async function(response) {
-				
-				try {
-					var data = response.data;
-					console.log(data);
-					var items = data.items; // array
-					for (var i = 0; i < items.length; i++) {
-						
-						var item = items[i];
-						var tree_id = "mama." + item.id
-						utils.mama_add_tree(tree_id, item);
-						var rows = item.rows;
-						for (var j = 0; j < rows.length; j++) {
-							var row = rows[j];
-							var fields = row.fields;
-							utils.mama_add_phenotype_rows(tree_id, fields);
-						}
-						// console.log(item);
+		var page_no = 1;
+		var page_index = 0;
+		var page_total = 1;
+
+		while (page_index < page_total) { 
+			page_index = page_index + 1;
+			try {
+				var url = "https://anecdata.org/rest_observations_v1.json?project_id=316&page=" + page_index;
+				console.log('URL:' + url);
+				var config2 = {
+					method: 'GET',
+					url: url,
+					headers: {
+						//"Accept": "application/json",
+						"Authorization": config.conf_anecdata.token_loggedin
 					}
 				}
-				catch (err) {
+				// console.log(config);
+				await axios_instance(config2).then(async function(response) {
+					
+					try {
+						var data = response.data;
+						// console.log(data);
+						console.log(data.pagination);
+						page_total = data.pagination.pageCount;
+						var items = data.items; // array
+						for (var i = 0; i < items.length; i++) {
+							
+							var item = items[i];
+							var tree_id = "mama." + item.id
+							utils.mama_ash_eab_surveys_add_tree(tree_id, item);
+							var rows = item.rows;
+							for (var j = 0; j < rows.length; j++) {
+								var row = rows[j];
+								var fields = row.fields;
+								utils.mama_ash_eab_surveys_add_phenotype_rows(tree_id, fields);
+							}
+							// console.log(item);
+						}
+					}
+					catch (err) {
+						console.log(err);
+					}
+				}).catch(function (err) {
 					console.log(err);
-				}
-			}).catch(function (err) {
+				});
+			}
+			catch (err) {
 				console.log(err);
-			});
-		}
-		catch (err) {
-			console.log(err);
+			}
 		}
 		res.status(200).json("success");
 		return;
@@ -5415,34 +5675,52 @@ function perform_bienv4_import() {
 			}
 			source_ids_string += source_ids_parts[i];
 		}
+
 		
 		//var cached_val = null; // override the code for this first version of this function
 		var query_str = "SELECT DISTINCT ON(species) species, genus, family FROM ct_trees WHERE source_id IN (" + source_ids_string + ")";
 		var cached_val = ct_cache.get(query_str);
+		// disable cache
+		cached_val == null;
 		if (cached_val == null && source_ids_string != "") {
-			query (query_str, [], function (err, rows, result) {
-			//query("SELECT DISTINCT ON (species) species, genus, value as family FROM chado.organism LEFT JOIN chado.organismprop ON organism.organism_id = organismprop.organism_id WHERE organismprop.type_id = 10;",[], function (err,rows,result) {
-				if (err) {
-					console.log(err);
-					res.status(400);
+			// get the cpapi_token (user specific )
+			var pass_hash = '';
+			try {
+			pass_hash = atob(req.query.cpapi_token);
+			}
+			catch (err) {
+				console.log(err);
+			}
+			query("SELECT * FROM public.users u INNER JOIN public.users_roles ur ON (u.uid = ur.uid) INNER JOIN public.role r ON (r.rid = ur.rid) WHERE pass LIKE $1", [pass_hash], function(err, rows_user_roles, result) {
+				for (var i = 0; i < rows_user_roles.length; i++) {
+					if (rows_user_roles[i]["role"] == "mama") {
+						query_str = query_str + " OR (source_id = 6 AND (is_private == NULL OR is_private == 1))";
+					}
+				}
+				query (query_str, [], function (err, rows, result) {
+				//query("SELECT DISTINCT ON (species) species, genus, value as family FROM chado.organism LEFT JOIN chado.organismprop ON organism.organism_id = organismprop.organism_id WHERE organismprop.type_id = 10;",[], function (err,rows,result) {
+					if (err) {
+						console.log(err);
+						res.status(400);
+						return;
+					}
+					var trees_fields = {"species": [], "genus": {}, "family": {}};
+					for (var i = 0; i < rows.length; i++) {
+						trees_fields["species"].push(rows[i]["species"]);
+						//trees_fields["species"].push(rows[i]["genus"] + ' ' + rows[i]["species"]);
+
+
+						if (rows[i]["genus"] != null && rows[i]["genus"].length > 0) {
+							trees_fields["genus"][rows[i]["genus"]] = true;
+						}
+						if (rows[i]["family"] != null && rows[i]["family"].length > 0) {
+							trees_fields["family"][rows[i]["family"]] = true;
+						}
+					}
+					ct_cache.put(query_str, trees_fields, cache_time_24);
+					res.status(200).json(trees_fields);
 					return;
-				}
-				var trees_fields = {"species": [], "genus": {}, "family": {}};
-				for (var i = 0; i < rows.length; i++) {
-					trees_fields["species"].push(rows[i]["species"]);
-					//trees_fields["species"].push(rows[i]["genus"] + ' ' + rows[i]["species"]);
-
-
-					if (rows[i]["genus"] != null && rows[i]["genus"].length > 0) {
-						trees_fields["genus"][rows[i]["genus"]] = true;
-					}
-					if (rows[i]["family"] != null && rows[i]["family"].length > 0) {
-						trees_fields["family"][rows[i]["family"]] = true;
-					}
-				}
-				ct_cache.put(query_str, trees_fields, cache_time_24);
-				res.status(200).json(trees_fields);
-				return;
+				});
 			});
 		}	
 		else {
@@ -6185,7 +6463,7 @@ function build_tree_query_str(query_conditions, sources) {
 			if (s > 0) {
 				query_str += " OR ";
 			}
-			query_str += "source_id = " + sources[s];
+			query_str += "(source_id = " + sources[s] + ")";
 		}
 	}
 	query_str += ")";
@@ -6217,8 +6495,12 @@ exports.trees_list_qbuilder = function(req, res, next) {
 
 		var cached_trees = ct_cache.get(query_str);
 		console.log(query_str);
+
+		// disable cached_trees
+		cached_trees = null;
 		if (cached_trees == null) {
 			console.log('Returning trees from direct Postgresql');
+
 			query (query_str, [], function(err, rows, result) {
 				if (err) {
 					console.log(err);
@@ -6304,6 +6586,7 @@ exports.trees_list_qbuilder = function(req, res, next) {
 				res.status(200).json({'zlib_deflated_base64': tree_features});
 				return;
 			});
+			
 		}
 		else {
 			console.log('Retrieving trees from cache');
@@ -6327,6 +6610,16 @@ exports.trees_list_qbuilder = function(req, res, next) {
 exports.trees_list = function(req, res, next) {
  	var cached_trees = ct_cache.get("trees_list");
 	if(cached_trees == null) {
+		// get the cpapi_token (user specific )
+		var pass_hash = '';
+		try {
+		 pass_hash = atob(req.query.cpapi_token);
+		}
+		catch (err) {
+			console.log(err);
+		}
+
+		var query_str = "SELECT * FROM ct_trees WHERE source_id IN (0,1,2);";
 		query ("SELECT * FROM ct_trees WHERE source_id IN (0,1,2);", [], function(err, rows, result) {
 			if (err) {
 				console.log(err);
@@ -6351,6 +6644,7 @@ exports.trees_list = function(req, res, next) {
 			res.status(200).json({zlib_deflated_base64: treeFeatures});
 			return;
 		});
+
 	}
 	else {
 		// Perform compression
