@@ -16,8 +16,8 @@ const pool = new Pool({
 	database: process.env.DB_NAME,
 	user: process.env.DB_USER,
 	password: process.env.DB_PASS,
-	max: 5,
-	idleTimeoutMillis: 30000,
+	max: 10,
+	idleTimeoutMillis: 10000,
 	connectionTimeoutMillis: 5000, 
 });
 const { spawn } = require('child_process');
@@ -5104,6 +5104,32 @@ exports.force_find_treesnap_terms = function(req, res, next) {
 	}
 }
 
+// mama_get_tree_phenotypes
+exports.mama_get_tree_phenotypes = async function(req, res, next) {
+	console.log('Connecting to database...');
+	var rows = [];
+	try {
+		var tree_id = req.query.tree_id;
+		// pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		const client = await pool.connect();
+		await client.query("set datestyle='ISO';");
+		await client.query("SET client_encoding TO 'UTF-8';");
+		await client.query("SET bytea_output TO escape;");
+		await client.query('SET SEARCH_PATH TO "public","chado"');
+
+		var query_str = "SELECT * FROM public.ct_trees_phenotypes_mama_ash_eab_surveys WHERE tree_acc = $1;";
+		// var rows = pg_n_client.querySync(query_str,[analysis_id]);
+		var qres = await client.query(query_str,[tree_id]);
+		
+		rows = qres.rows;
+		client.release();
+	}
+	catch (err) {
+		console.log(err);
+	}
+	res.status(200).json(rows);
+}
+
 exports.force_reload_mama = async function(req, res, next) {
 	var api_superuser_password = req.query.asup;
 
@@ -5691,37 +5717,32 @@ function perform_bienv4_import() {
 			catch (err) {
 				console.log(err);
 			}
-			query("SELECT * FROM public.users u INNER JOIN public.users_roles ur ON (u.uid = ur.uid) INNER JOIN public.role r ON (r.rid = ur.rid) WHERE pass LIKE $1", [pass_hash], function(err, rows_user_roles, result) {
-				for (var i = 0; i < rows_user_roles.length; i++) {
-					if (rows_user_roles[i]["role"] == "mama") {
-						query_str = query_str + " OR (source_id = 6 AND (is_private == NULL OR is_private == 1))";
+
+			query (query_str, [], function (err, rows, result) {
+			//query("SELECT DISTINCT ON (species) species, genus, value as family FROM chado.organism LEFT JOIN chado.organismprop ON organism.organism_id = organismprop.organism_id WHERE organismprop.type_id = 10;",[], function (err,rows,result) {
+				if (err) {
+					console.log(err);
+					res.status(400);
+					return;
+				}
+				var trees_fields = {"species": [], "genus": {}, "family": {}};
+				for (var i = 0; i < rows.length; i++) {
+					trees_fields["species"].push(rows[i]["species"]);
+					//trees_fields["species"].push(rows[i]["genus"] + ' ' + rows[i]["species"]);
+
+
+					if (rows[i]["genus"] != null && rows[i]["genus"].length > 0) {
+						trees_fields["genus"][rows[i]["genus"]] = true;
+					}
+					if (rows[i]["family"] != null && rows[i]["family"].length > 0) {
+						trees_fields["family"][rows[i]["family"]] = true;
 					}
 				}
-				query (query_str, [], function (err, rows, result) {
-				//query("SELECT DISTINCT ON (species) species, genus, value as family FROM chado.organism LEFT JOIN chado.organismprop ON organism.organism_id = organismprop.organism_id WHERE organismprop.type_id = 10;",[], function (err,rows,result) {
-					if (err) {
-						console.log(err);
-						res.status(400);
-						return;
-					}
-					var trees_fields = {"species": [], "genus": {}, "family": {}};
-					for (var i = 0; i < rows.length; i++) {
-						trees_fields["species"].push(rows[i]["species"]);
-						//trees_fields["species"].push(rows[i]["genus"] + ' ' + rows[i]["species"]);
-
-
-						if (rows[i]["genus"] != null && rows[i]["genus"].length > 0) {
-							trees_fields["genus"][rows[i]["genus"]] = true;
-						}
-						if (rows[i]["family"] != null && rows[i]["family"].length > 0) {
-							trees_fields["family"][rows[i]["family"]] = true;
-						}
-					}
-					ct_cache.put(query_str, trees_fields, cache_time_24);
-					res.status(200).json(trees_fields);
-					return;
-				});
+				ct_cache.put(query_str, trees_fields, cache_time_24);
+				res.status(200).json(trees_fields);
+				return;
 			});
+			
 		}	
 		else {
 			res.status(200).json(cached_val);
@@ -5785,7 +5806,7 @@ exports.markers_get_fields = function(req, res, next) {
 	utils.valid_api_key(api_key, res, function() {
 		var cached_val = ct_cache.get("markers_fields");
 		if (cached_val == null) {
-			query ("SELECT * FROM geno_view_distinct ORDER BY marker_type", [], function (err, rows, result) {
+			query ("SELECT * FROM public.geno_view_distinct ORDER BY marker_type", [], function (err, rows, result) {
 				if (err) {
 					console.log(err);
 					res.status(400);
@@ -5821,66 +5842,103 @@ exports.tree_get_basic = function(req, res, next) {
 	
 	utils.valid_api_key(api_key, res, function() {
 		var cached_val = ct_cache.get("tree_id=" + tree_id);
+		// Always pull directly from DB due to is_private data
+		cached_val = null;
 		if(cached_val == null) {
-			query ("SELECT * FROM ct_trees WHERE uniquename = $1", [tree_id], function (err, rows, result) {
-				if (err) {
-					console.log(err);
-					res.status(400);
-					return;
-				}
-				// console.log('Querying the ct_trees');
-				if(rows != undefined) {
-					// console.log('rows defined');
-					if(rows.length > 0) {
-						// console.log('rows more than 0');
-						var species_name = rows[0].species;
-						// console.log('Querying the endangered taxa');
-						query ("SELECT * FROM ct_trees_bien_endangered_taxa WHERE taxon_rank = 'species' AND taxon_scrubbed_canonical = $1 LIMIT 1", [species_name], function (err, rows_endangered, result) {
-							if (err) {
-								//console.log(err);
-								//res.status(400);
-								//return;
-							}
-							//console.log(rows[0]);
-							//console.log(rows_endangered[0]);
-							if(rows_endangered != undefined) {
-								try {
-									if(rows_endangered.length > 0) {
-										rows[0].endangered_cites_status = rows_endangered[0].cites_status;
-										rows[0].endangered_iucn_status = rows_endangered[0].iucn_status;
-										rows[0].endangered_usda_status_fed = rows_endangered[0].usda_status_fed;
-										rows[0].endangered_usda_status_state = rows_endangered[0].usda_status_state;
-									}
-								}
-								catch(err) {
-									console.log(err);
-								}
-							}
-							else {
-								//To consider whether we should still add nulls - waste of bandwidth?
-							}
-							console.log(rows[0]);
-							ct_cache.put("tree_id=" + tree_id, rows[0], cache_time_24);
-							res.status(200).json(rows[0]);
-							return;					
-						});
+			// get the cpapi_token (user specific )
+			var pass_hash = '';
+			try {
+			pass_hash = atob(req.query.cpapi_token);
+			}
+			catch (err) {
+				console.log(err);
+			}
+			query("SELECT u.name as name, r.name as role FROM public.users u INNER JOIN public.users_roles ur ON (u.uid = ur.uid) INNER JOIN public.role r ON (r.rid = ur.rid) WHERE pass LIKE $1", [pass_hash], function(err, rows_user_roles, result) {
+				var private_source_ids = [];
+				for (var i = 0; i < rows_user_roles.length; i++) {
+					if (rows_user_roles[i]["role"] == "mama") {
+						private_source_ids.push(6);
 					}
-					else {
-						// console.log('rows less than or equal zero');
-						res.status(404).json("no tree");
+				}
+				query ("SELECT * " + 
+					"FROM ct_trees WHERE uniquename = $1", [tree_id], function (err, rows, result) {
+					if (err) {
+						console.log(err);
+						res.status(400);
 						return;
 					}
-					/*
-					ct_cache.put("tree_id=" + tree_id, rows[0], cache_time_24);
-					res.status(200).json(rows[0]);
-					return;
-					*/
-				}
-				else {
-					console.log('rows undefined');
-					res.status(404);
-					return;					
-				}
+					// console.log('Querying the ct_trees');
+					if(rows != undefined) {
+						// console.log('rows defined');
+						if(rows.length > 0) {
+							// console.log('rows more than 0');
+							var species_name = rows[0].species;
+							// console.log('Querying the endangered taxa');
+							query ("SELECT * FROM ct_trees_bien_endangered_taxa WHERE taxon_rank = 'species' AND taxon_scrubbed_canonical = $1 LIMIT 1", [species_name], function (err, rows_endangered, result) {
+								if (err) {
+									//console.log(err);
+									//res.status(400);
+									//return;
+								}
+
+								// Check if we should allow private data (latitude_precise, longitude_precise)
+								for (var i = 0; i < private_source_ids.length; i++) {
+									if (private_source_ids[i] == rows[0].source_id) {
+										console.log('Permission granted for private data for source_id: ' + rows[0].source_id);
+										rows[0].latitude = rows[0].latitude_precise;
+										rows[0].longitude = rows[0].longitude_precise;
+									}
+								}
+
+								// Once we've swapped precision, we don't need it anymore (for people not logged in, this data will thus be empty / safe)
+								try {
+									delete rows[0].latitude_precise;
+									delete rows[0].longitude_precise;
+								} catch (err) {
+
+								}
+
+								//console.log(rows[0]);
+								//console.log(rows_endangered[0]);
+								if(rows_endangered != undefined) {
+									try {
+										if(rows_endangered.length > 0) {
+											rows[0].endangered_cites_status = rows_endangered[0].cites_status;
+											rows[0].endangered_iucn_status = rows_endangered[0].iucn_status;
+											rows[0].endangered_usda_status_fed = rows_endangered[0].usda_status_fed;
+											rows[0].endangered_usda_status_state = rows_endangered[0].usda_status_state;
+										}
+									}
+									catch(err) {
+										console.log(err);
+									}
+								}
+								else {
+									//To consider whether we should still add nulls - waste of bandwidth?
+								}
+								console.log(rows[0]);
+								ct_cache.put("tree_id=" + tree_id, rows[0], cache_time_24);
+								res.status(200).json(rows[0]);
+								return;					
+							});
+						}
+						else {
+							// console.log('rows less than or equal zero');
+							res.status(404).json("no tree");
+							return;
+						}
+						/*
+						ct_cache.put("tree_id=" + tree_id, rows[0], cache_time_24);
+						res.status(200).json(rows[0]);
+						return;
+						*/
+					}
+					else {
+						console.log('rows undefined');
+						res.status(404);
+						return;					
+					}
+				});
 			});
 		}
 		else {
@@ -6463,7 +6521,7 @@ function build_tree_query_str(query_conditions, sources) {
 			if (s > 0) {
 				query_str += " OR ";
 			}
-			query_str += "(source_id = " + sources[s] + ")";
+			query_str += "(source_id = " + sources[s] + " AND is_private IS NULL)";
 		}
 	}
 	query_str += ")";
@@ -6494,99 +6552,126 @@ exports.trees_list_qbuilder = function(req, res, next) {
 		var query_str = build_tree_query_str(utils.parse_json_query(req.body["query"], ""), req.body["active_sources"]);
 
 		var cached_trees = ct_cache.get(query_str);
-		console.log(query_str);
+		// console.log(query_str);
 
 		// disable cached_trees
 		cached_trees = null;
 		if (cached_trees == null) {
 			console.log('Returning trees from direct Postgresql');
-
-			query (query_str, [], function(err, rows, result) {
-				if (err) {
-					console.log(err);
-					res.status(400);
-					return;
+			// get the cpapi_token (user specific )
+			var pass_hash = '';
+			try {
+				pass_hash = atob(req.query.cpapi_token);
+			}
+			catch (err) {
+				console.log(err);
+			}
+			console.log("PASS_HASH: " + pass_hash);
+			query("SELECT u.name as name, r.name as role FROM public.users u INNER JOIN public.users_roles ur ON (u.uid = ur.uid) INNER JOIN public.role r ON (r.rid = ur.rid) WHERE pass LIKE $1", [pass_hash], function(err, rows_user_roles, result) {
+				var private_source_ids = [];
+				for (var i = 0; i < rows_user_roles.length; i++) {
+					// console.log(rows_user_roles);
+					if (rows_user_roles[i]["role"] == "mama") {
+						private_source_ids.push(6);
+						query_str += " OR (source_id = 6 AND is_private = 1)";
+					}
 				}
-				var tree_features = {"features":[], "center":[null, null]};
-				var most_common = 0;
-				var coords_to_freq = {};
-				var freq_to_coords = {};
-				var unq_species = {};
-				var unq_pub = {};
-				
-				var tree_count = 0;
-				var lon_leftmost = 99999;
-				var lon_rightmost = -99999;
-				var lat_topmost = -99999;
-				var lat_bottommost = 99999;
-				var center_lat = 0;
-				var center_lon = 0;
-				for (var i = 0; i < rows.length; i++) {
+				console.log(query_str);
+				query (query_str, [], function(err, rows, result) {
+					if (err) {
+						console.log(err);
+						res.status(400);
+						return;
+					}
+					var tree_features = {"features":[], "center":[null, null]};
+					var most_common = 0;
+					var coords_to_freq = {};
+					var freq_to_coords = {};
+					var unq_species = {};
+					var unq_pub = {};
 					
+					var tree_count = 0;
+					var lon_leftmost = 99999;
+					var lon_rightmost = -99999;
+					var lat_topmost = -99999;
+					var lat_bottommost = 99999;
+					var center_lat = 0;
+					var center_lon = 0;
+					for (var i = 0; i < rows.length; i++) {
+						// Check if we should allow private data (latitude_precise, longitude_precise)
+						for (var j = 0; j < private_source_ids.length; j++) {
+							if (private_source_ids[j] == rows[i].source_id) {
+								if (rows[i].is_private != null && rows[i].is_private == 1) {
+									console.log('Permission granted for ' + rows[i].uniquename + ' (source_id: ' + rows[i].source_id + ')');
+									rows[i].latitude = rows[i].latitude_precise;
+									rows[i].longitude = rows[i].longitude_precise;
+								}
+							}
+						}
 
-					// Record the widest cross section
-					if(lon_leftmost > rows[i]["longitude"]) {
-						lon_leftmost = rows[i]["longitude"];
-					}
-					if(lon_rightmost < rows[i]["longitude"]) {
-						lon_rightmost = rows[i]["longitude"];
-					}
-					if(lat_topmost < rows[i]["latitude"]) {
-						lat_topmost = rows[i]["latitude"];
-					}
-					if(lat_bottommost > rows[i]["latitude"]) {
-						lat_bottommost = rows[i]["latitude"];
-					}
+						// Record the widest cross section
+						if(lon_leftmost > rows[i]["longitude"]) {
+							lon_leftmost = rows[i]["longitude"];
+						}
+						if(lon_rightmost < rows[i]["longitude"]) {
+							lon_rightmost = rows[i]["longitude"];
+						}
+						if(lat_topmost < rows[i]["latitude"]) {
+							lat_topmost = rows[i]["latitude"];
+						}
+						if(lat_bottommost > rows[i]["latitude"]) {
+							lat_bottommost = rows[i]["latitude"];
+						}
 
 
-					var curr_tree = {"type": "Feature"};
-					var is_tree = new Boolean(rows[i]["is_tree"])
-					is_tree = is_tree.toString();
-					curr_tree["properties"] = {"id": rows[i]["uniquename"], "icon_type": rows[i]["icon_type"], "is_tree": is_tree, "sid": rows[i]["source_id"]};
-					curr_tree["geometry"] = {"type": "Point", "coordinates": [rows[i]["longitude"], rows[i]["latitude"]]};
-					if (rows[i]["accession"] != null && rows[i]["accession"].length > 0) {
-						unq_pub[rows[i]["accession"]] = true;
+						var curr_tree = {"type": "Feature"};
+						var is_tree = new Boolean(rows[i]["is_tree"])
+						is_tree = is_tree.toString();
+						curr_tree["properties"] = {"id": rows[i]["uniquename"], "icon_type": rows[i]["icon_type"], "is_tree": is_tree, "sid": rows[i]["source_id"]};
+						curr_tree["geometry"] = {"type": "Point", "coordinates": [rows[i]["longitude"], rows[i]["latitude"]]};
+						if (rows[i]["accession"] != null && rows[i]["accession"].length > 0) {
+							unq_pub[rows[i]["accession"]] = true;
+						}
+						if (rows[i]["species"] != null && rows[i]["species"].length > 0) {
+							unq_species[rows[i]["species"]] = true;	
+						}
+							
+						var coords_key = rows[i]["longitude"] + "_" + rows[i]["latitude"];
+						var coords_count = coords_to_freq[coords_key] == undefined ? 1 : coords_count + 1;
+							
+						coords_to_freq[coords_key] = coords_count;
+						freq_to_coords[coords_count] = coords_key;
+						if (coords_count > most_common) {
+							most_common = coords_count;
+						}
+						tree_features["features"].push(curr_tree);
+						tree_count++;
 					}
-					if (rows[i]["species"].length > 0) {
-						unq_species[rows[i]["species"]] = true;	
+					if (most_common > 0) {
+						var coords_split = freq_to_coords[most_common].split("_");
+						tree_features["center"] = [parseFloat(coords_split[0]), parseFloat(coords_split[1])];
 					}
-						
-					var coords_key = rows[i]["longitude"] + "_" + rows[i]["latitude"];
-					var coords_count = coords_to_freq[coords_key] == undefined ? 1 : coords_count + 1;
-						
-					coords_to_freq[coords_key] = coords_count;
-					freq_to_coords[coords_count] = coords_key;
-					if (coords_count > most_common) {
-						most_common = coords_count;
-					}
-					tree_features["features"].push(curr_tree);
-					tree_count++;
-				}
-				if (most_common > 0) {
-					var coords_split = freq_to_coords[most_common].split("_");
-					tree_features["center"] = [parseFloat(coords_split[0]), parseFloat(coords_split[1])];
-				}
 
-				//Override center with new code
-				center_lat = ((lat_topmost + lat_bottommost) / 2);
-				center_lon = ((lon_rightmost + lon_leftmost) / 2);
-				tree_features["center"] = [parseFloat(center_lon),parseFloat(center_lat)];
+					//Override center with new code
+					center_lat = ((lat_topmost + lat_bottommost) / 2);
+					center_lon = ((lon_rightmost + lon_leftmost) / 2);
+					tree_features["center"] = [parseFloat(center_lon),parseFloat(center_lat)];
 
-				tree_features["num_species"] = Object.keys(unq_species).length;
-				tree_features["unq_species"] = unq_species;
-				tree_features["num_pubs"] = Object.keys(unq_pub).length;
-				tree_features["num_trees"] = tree_count;
-				
-				ct_cache.put(query_str, tree_features, cache_time_24);
-				
-				// We could put the compressed data into cache but for debug we won't do that
-				// Perform compression
-				tree_features = zlib_deflate_base64(JSON.stringify(tree_features));				
+					tree_features["num_species"] = Object.keys(unq_species).length;
+					tree_features["unq_species"] = unq_species;
+					tree_features["num_pubs"] = Object.keys(unq_pub).length;
+					tree_features["num_trees"] = tree_count;
+					
+					ct_cache.put(query_str, tree_features, cache_time_24);
+					
+					// We could put the compressed data into cache but for debug we won't do that
+					// Perform compression
+					tree_features = zlib_deflate_base64(JSON.stringify(tree_features));				
 
-				res.status(200).json({'zlib_deflated_base64': tree_features});
-				return;
+					res.status(200).json({'zlib_deflated_base64': tree_features});
+					return;
+				});
 			});
-			
 		}
 		else {
 			console.log('Retrieving trees from cache');

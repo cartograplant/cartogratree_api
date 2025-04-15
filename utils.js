@@ -372,9 +372,10 @@ async function mama_ash_eab_surveys_add_tree(tree_id, item) {
     var is_private = null;
     // We need to still go through all rows within this item to get to 'Ash species identification' to set black ash to is_private = 0
     var rows = item.rows;
-	var genus = null;
-	var species = null;
+
     for (var j = 0; j < rows.length; j++) {
+		var genus = null;
+		var species = null;
         var row = rows[j];
         var fields = row.fields;
         for (var j = 0; j < fields.length; j++) {
@@ -589,7 +590,7 @@ async function mama_ash_eab_surveys_add_phenotype_rows(tree_id, fields) {
 						valid_phenotype = true;
 						break;
 				}
-				if (valid_phenotype == true) {
+				//if (valid_phenotype == true) {
 					await client.query(
 						"INSERT INTO public.ct_trees_phenotypes_mama_ash_eab_surveys " +
 						//      1         2       3        4            5          6    7         8                 9                 10            11              12              13                 14           15         16            17             18             19
@@ -598,7 +599,7 @@ async function mama_ash_eab_surveys_add_phenotype_rows(tree_id, fields) {
 						//          1              2     3    4    5    6    7       8      9    10   11     12       13       14          15          16           17           18              19
 						[tree_id + "." + slug, tree_id,name,null,slug,value,unit,attribute,null,null,null,structure, null, structure_id, unit_id, cvterm_1_name, cvterm_1_id, cvterm_2_name, cvterm_2_id]
 					);
-				}
+				// }
 			}
 		}
 		catch (err) {
@@ -625,10 +626,10 @@ async function treesnap_add_row(tree_data) {
 				// Let's make otherlabel lower case
 				otherLabel = otherLabel.toLowerCase();
 				// Most likely got the otherLabel, try to query db
-				var pg_n_client_tg = new pg_native_client(); //Connect to TreeGenes Database server synchronously
-				pg_n_client_tg.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
-				var cn_rows = pg_n_client_tg.querySync("SELECT distinct(lower(common_name)) as common_name, genus, species FROM chado.organism WHERE lower(common_name) = $1;",[otherLabel]);
-				pg_n_client_tg.end(); //Disconnect from TreeGenes database server
+				//var pg_n_client_tg = new pg_native_client(); //Connect to TreeGenes Database server synchronously
+				//pg_n_client_tg.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+				var cn_rows = await pool.query("SELECT distinct(lower(common_name)) as common_name, genus, species FROM chado.organism WHERE lower(common_name) = $1;",[otherLabel]);
+				// pg_n_client_tg.end(); //Disconnect from TreeGenes database server
 				if(cn_rows.length > 0) {
 					// we found a match in the db that has the common_name and genus and species!
 					console.log("Found a match for otherLabel and common_name");
@@ -678,13 +679,13 @@ async function treesnap_add_row(tree_data) {
 				["treesnap." + tree_data["id"], tree_data["genus"] + " " + tree_data["species"], tree_data["genus"], null, null, tree_data["latitude"], tree_data["longitude"], 1, 4, category]);
 		}
 		//console.log(tree_data['meta_data']);
-		const client = await pool.connect()
+		// const client = await pool.connect()
 		if(tree_data['meta_data'].diameterNumeric_values != undefined) {
-			await client.query("INSERT INTO public.ct_trees_phenotypes_treesnap (uniquename, tree_acc,name,mapped_name,phenotype_name,value,units,observable_name,observable_accession,structure_name,structure_accession) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(uniquename) DO NOTHING",
+			await pool.query("INSERT INTO public.ct_trees_phenotypes_treesnap (uniquename, tree_acc,name,mapped_name,phenotype_name,value,units,observable_name,observable_accession,structure_name,structure_accession) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(uniquename) DO NOTHING",
 				["treesnap." + tree_data["id"] + ".diameter", "treesnap." + tree_data["id"],"diameter",'Diameter',"diameter", tree_data['meta_data'].diameterNumeric_values.US_value, tree_data['meta_data'].diameterNumeric_values.US_unit,"diameter","PATO:0001334","stem", "PO_0009047"]);
 		}
 		if(tree_data['meta_data'].heightNumeric_values != undefined) {
-			await client.query("INSERT INTO public.ct_trees_phenotypes_treesnap (uniquename, tree_acc,name,mapped_name,phenotype_name,value,units,observable_name,observable_accession,structure_name,structure_accession) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(uniquename) DO NOTHING",
+			await pool.query("INSERT INTO public.ct_trees_phenotypes_treesnap (uniquename, tree_acc,name,mapped_name,phenotype_name,value,units,observable_name,observable_accession,structure_name,structure_accession) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(uniquename) DO NOTHING",
 				["treesnap." + tree_data["id"] + ".height", "treesnap." + tree_data["id"],"height",'Height',"height", tree_data['meta_data'].heightNumeric_values.US_value, tree_data['meta_data'].heightNumeric_values.US_unit,"height","PATO:0000119","whole plant", "PO:0000003"]);
 		}
 		
@@ -1150,20 +1151,22 @@ async function treesnap_add_row(tree_data) {
 					}
 					
 					if (is_phenotype == false) {
-						await client.query("INSERT INTO public.ct_trees_data_treesnap (uniquename, tree_acc,name,phenotype_name,mapped_name,value,units,observable_name,observable_accession,cvterm_name,cvterm_accession,structure_name,structure_accession,confidence,cvterm_1_name,additional_term_accession) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) ON CONFLICT(uniquename) DO NOTHING",
-						["treesnap." + tree_data["id"] + "." + phenotype_name, "treesnap." + tree_data["id"],phenotype_name,phenotype_name,mapped_name,value,new_units,attribute,attribute_accession,phenotype_name,"",structure, structure_accession,confidence,additional_term,additional_term_accession]);	
+						await pool.query("INSERT INTO public.ct_trees_data_treesnap " +
+						"(uniquename,                                                tree_acc,                   name,      phenotype_name,mapped_name,value,units,observable_name,observable_accession,cvterm_name,cvterm_accession,structure_name,structure_accession,confidence,cvterm_1_name,additional_term_accession) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) ON CONFLICT(uniquename) DO NOTHING",
+						["treesnap." + tree_data["id"] + "." + phenotype_name, "treesnap." + tree_data["id"],phenotype_name,phenotype_name,mapped_name,value,new_units,attribute,attribute_accession,phenotype_name,      "",            structure,structure_accession,confidence,additional_term,additional_term_accession]);	
 					}
 					if (is_phenotype == true) {
 						if(value != "I'm not sure" && value != "Unknown" && value != "Not sure" && phenotype_name != "ashSpecies" && phenotype_name != "comment" && phenotype_name != "hybridTraits" && phenotype_name != "hybridAttributes" && phenotype_name != "otherLabel") {
 							// console.log(phenotype_name + ',' + value + ',' + new_units);
-							await client.query("INSERT INTO public.ct_trees_phenotypes_treesnap (uniquename, tree_acc,name,phenotype_name,mapped_name,value,units,observable_name,observable_accession,structure_name,structure_accession,confidence,cvterm_1_name,additional_term_accession) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT(uniquename) DO NOTHING",
-								["treesnap." + tree_data["id"] + "." + phenotype_name, "treesnap." + tree_data["id"],phenotype_name,phenotype_name,mapped_name,value,new_units,structure, structure_accession,confidence,additional_term,additional_term_accession]);
+							await pool.query("INSERT INTO public.ct_trees_phenotypes_treesnap " + 
+								"(uniquename,                                                     tree_acc,               name,     phenotype_name,mapped_name,value,  units,  observable_name,  observable_accession, structure_name, structure_accession,confidence,cvterm_1_name,additional_term_accession) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT(uniquename) DO NOTHING",
+								["treesnap." + tree_data["id"] + "." + phenotype_name, "treesnap." + tree_data["id"],phenotype_name,phenotype_name,mapped_name,value,new_units, structure,        structure_accession,       structure, structure_accession,confidence,additional_term,additional_term_accession]);
 						}
 					}
 				}
 			}			
 		}
-		client.release();
+		// client.release();
 
 		
 		// OLD CODE THAT DOESN'T WORK (MOST LIKELY A MEMORY OVERLOAD ISSUE)
