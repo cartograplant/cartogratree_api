@@ -44,6 +44,7 @@
     "node-cache": "^4.2.0",
     "node-gyp": "^9.3.0",
     "node-html-parser": "^1.2.18",
+    "path": "^0.12.7",
     "perf_hooks": "0.0.1",
     "pg": "^8.9.0",
     "pg-native": "^3.0.0",
@@ -58,6 +59,7 @@
     "simple-json-db": "^1.2.3",
     "socket.io": "^4.5.4",
     "string-strip-html": "^13.4.5",
+    "url": "^0.11.4",
     "ws": "^7.2.1",
     "zlib": "^1.0.5"
   },

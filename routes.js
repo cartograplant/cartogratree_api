@@ -52,6 +52,8 @@ module.exports = async function(app, global) {
 	app.post("/cartogratree/api/v2/genotypes/by_study_ids", tree_controller.genotypes_overlapping_by_study_ids);
 	app.post("/cartogratree/api/v2/genotypes/markers_by_study_ids", tree_controller.genotypes_overlapping_markers_by_study_ids);
 	app.post("/cartogratree/api/v2/genotypes/snps_get_tree_ids_by_analysis_id", tree_controller.genotypes_snps_get_tree_ids_by_analysis_id);
+	app.post("/cartogratree/api/v2/manage/study_context/run", tree_controller.manage_study_context_run)
+	app.post("/cartogratree/api/v2/manage/study_context/check_completion_json", tree_controller.manage_study_context_check_completion_json)
 	app.post("/cartogratree/api/v2/genotypes/snp_vcf_filtering", tree_controller.genotypes_snp_vcf_filtering);
 	app.post("/cartogratree/api/v2/genotypes/variant_filtering_panel_filter_by_genotypes", tree_controller.genotypes_variant_filtering_panel_filter_by_genotypes);
 	app.post("/cartogratree/api/v2/genotypes/variant_filtering_panel_get_statistics", tree_controller.genotypes_variant_filtering_panel_get_statistics);

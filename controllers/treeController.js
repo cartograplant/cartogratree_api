@@ -16,7 +16,7 @@ const pool = new Pool({
 	database: process.env.DB_NAME,
 	user: process.env.DB_USER,
 	password: process.env.DB_PASS,
-	max: 10,
+	max: 20,
 	idleTimeoutMillis: 10000,
 	connectionTimeoutMillis: 5000, 
 });
@@ -77,7 +77,8 @@ exports.set_global = function (global_obj) {
 							  'User-Agent': 'my request',
 							  'Authorization': 'Bearer ' + oauth_object.access_token,
 							  'Content-Type': 'application/json',
-							  'Accept': 'application/json'
+							  'Accept': 'application/json',
+							  'Cache-Control': 'no-cache'
 						  }
 						},
 						function(error, response, body){
@@ -223,7 +224,7 @@ async function anecdata_login_do() {
 		})
 	});
 
-	var url = 'https://anecdata.org/rest_users/login.json';
+	var url = 'https://anecdata.org/rest_users/login.json?nocache=' + Math.floor(Date.now() / 1000);
 	// console.log(config);
 	axios_instance({
 		method: 'POST',
@@ -242,7 +243,7 @@ async function anecdata_login_do() {
 	}).then(function(response) {
 		// console.log(response.data);
 		var data = response.data;
-		console.log(data);
+		console.log(data.token);
 		config.conf_anecdata.token_loggedin = data.token;
 		console.log(config.conf_anecdata);
 		return data;
@@ -1097,7 +1098,6 @@ exports.phenotypes_single_phenotype_name_units_per_studies = function(req, res, 
 	}
 	if(studies.length > 0) {
 		var query_str = 'SELECT accessions, cardinality(markers) FROM chado.test_studies_marker_overlap WHERE ';
-		console.log(query_str);
 		for(var i=0; i<studies.length; i++) {
 			if(i > 0) {
 				query_str += " AND '" + studies[i] + "' = ANY (accessions) ";
@@ -2947,7 +2947,7 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
    
 		console.log('Connecting to database...');
 		// pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
-		const client = await pool.connect();
+		var client = await pool.connect();
 		//console.log(config.conf.host);
 		//console.log(config.conf.user);
 		//console.log(config.conf.password);
@@ -2955,6 +2955,7 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 		// pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
 		// pg_n_client.querySync("SET bytea_output TO escape;");
 		// pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');    
+		
 		await client.query("set datestyle='ISO';");
 		await client.query("SET client_encoding TO 'UTF-8';");
 		await client.query("SET bytea_output TO escape;");
@@ -2974,10 +2975,11 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 			}
 		}
 		query_str += " order by cardinality desc limit 1";
+		console.log("STEP 1:" + query_str);
    
 		// Perform the query to get the results of total_overlaps
 		// var rows = pg_n_client.querySync(query_str);
-		var qres = await client.querySync(query_str);
+		var qres = await client.query(query_str);
 		var rows = qres.rows;
 		if(rows.length > 0) {
 			total_overlaps = rows[0].cardinality;
@@ -2996,239 +2998,243 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 		// Get the pairs first
 		// Generate all permutations
 
-	var result_pairs = pairwise(study_ids_arr);
-	console.log(result_pairs);
-	var overlap_pairs = [];
-	for(var i=0; i<result_pairs.length; i++) {
-		var pair = result_pairs[i];
-		// console.log('pair', JSON.stringify(pair));
-		var pair_result_object = {};
-		var query_str = "select accessions, cardinality(markers) from chado.test_studies_marker_overlap WHERE ";
-		for (var j=0; j<pair.length; j++) {
-			var study_id = pair[j];
-			// console.log('study_id', study_id);
-			if (j == 0) {
-				query_str += "'" + study_id + "' = ANY(accessions)";
+		var result_pairs = pairwise(study_ids_arr);
+		console.log(result_pairs);
+		var overlap_pairs = [];
+		for(var i=0; i<result_pairs.length; i++) {
+			var pair = result_pairs[i];
+			// console.log('pair', JSON.stringify(pair));
+			var pair_result_object = {};
+			var query_str = "select accessions, cardinality(markers) from chado.test_studies_marker_overlap WHERE ";
+			for (var j=0; j<pair.length; j++) {
+				var study_id = pair[j];
+				// console.log('study_id', study_id);
+				if (j == 0) {
+					query_str += "'" + study_id + "' = ANY(accessions)";
+				}
+				else {
+					query_str += " AND '" + study_id + "' = ANY(accessions)";
+				}
 			}
-			else {
-				query_str += " AND '" + study_id + "' = ANY(accessions)";
+			query_str += " order by cardinality desc limit 1";
+			console.log("STEP 1.5:" + query_str);
+			
+			// // Perform the query to get the results of total_overlaps between pair
+			// var rows = pg_n_client.querySync(query_str);
+			var qres = await client.query(query_str);
+			var rows = qres.rows;
+			if(rows.length > 0) {
+				pair_result_object['sets'] = pair;
+				pair_result_object['size'] = rows[0].cardinality;
+			// total_overlaps = rows[0].cardinality;
+			}
+			if(!overlap_pairs.includes(pair_result_object)) {
+				overlap_pairs.push(pair_result_object);
 			}
 		}
-		query_str += " order by cardinality desc limit 1";
-		// console.log(query_str);
+		console.log('overlap_pairs', JSON.stringify(overlap_pairs));
+
+
+
+		// STEP 2 - Get total markers for each study
+		var total_snps_per_study = {};
+		var query_str = "select accession, cardinality(markers) from chado.markers_and_studies_names where accession in (";
+		for(var i=0; i<study_ids_arr.length; i++) {
+			var study_id = study_ids_arr[i];
+			total_snps_per_study[study_id] = 0;
+			if(i == 0) {
+			query_str += "'" + study_id + "'"
+			}
+			else {
+			query_str += ",'" + study_id + "'"
+			}
+		}
+		query_str += ") order by cardinality;"
+		console.log("STEP 2:" + query_str);
 		
-		// // Perform the query to get the results of total_overlaps between pair
+		// Perform the query to get the results of total snps per studies (each row has the total per study)
 		// var rows = pg_n_client.querySync(query_str);
 		var qres = await client.query(query_str);
 		var rows = qres.rows;
-		if(rows.length > 0) {
-			pair_result_object['sets'] = pair;
-			pair_result_object['size'] = rows[0].cardinality;
-		// total_overlaps = rows[0].cardinality;
+		for(var i=0; i<rows.length; i++) {
+			var study_id = rows[i]['accession'];
+			total_snps_per_study[study_id] = rows[i]['cardinality'];
 		}
-		if(!overlap_pairs.includes(pair_result_object)) {
-			overlap_pairs.push(pair_result_object);
-		}
-	}
-	console.log('overlap_pairs', JSON.stringify(overlap_pairs));
+		console.log('total_snps_per_study',JSON.stringify(total_snps_per_study));
 
 
+		// STEP 3 - Getting overlaps_some for each study
+		// We go through each study (for loop)
+		var overlap_some = {};
+		for(var i=0; i<study_ids_arr.length; i++) {
+			var anchor_study_id = study_ids_arr[i];
+			console.log(anchor_study_id);
+			var anchor_index = i;
 
-   // STEP 2 - Get total markers for each study
-   var total_snps_per_study = {};
-   var query_str = "select accession, cardinality(markers) from markers_and_studies_names where accession in (";
-   for(var i=0; i<study_ids_arr.length; i++) {
-	 var study_id = study_ids_arr[i];
-	 total_snps_per_study[study_id] = 0;
-	 if(i == 0) {
-	   query_str += "'" + study_id + "'"
-	 }
-	 else {
-	   query_str += ",'" + study_id + "'"
-	 }
-   }
-   query_str += ") order by cardinality;"
-   
-   // Perform the query to get the results of total snps per studies (each row has the total per study)
-   // var rows = pg_n_client.querySync(query_str);
-   var qres = await client.querySync(query_str);
-   var rows = qres.rows;
-   for(var i=0; i<rows.length; i++) {
-	 var study_id = rows[i]['accession'];
-	 total_snps_per_study[study_id] = rows[i]['cardinality'];
-   }
-   console.log('total_snps_per_study',JSON.stringify(total_snps_per_study));
-
-
-   // STEP 3 - Getting overlaps_some for each study
-   // We go through each study (for loop)
-   var overlap_some = {};
-   for(var i=0; i<study_ids_arr.length; i++) {
-	 var anchor_study_id = study_ids_arr[i];
-	 console.log(anchor_study_id);
-	 var anchor_index = i;
-
-	 // Set default overlap_some for anchor study
-	 overlap_some[anchor_study_id] = 0;
-	 // Get all other studies
-	 var other_studies = [];
-	 for(var j=0; j<study_ids_arr.length;j++) {
-	   if(j != i) {
-		 other_studies.push(study_ids_arr[j]);
-	   }
-	 }
-	 // Now we have other_studies exclusive of anchor study
-
-	 // We need to perform sql based on achor study versus each other study
-	 var table_count = 1;
-	 var query_str = "SELECT count(unnest) as c1 FROM ((select DISTINCT(unnest) FROM (";
-	 for(var j=0; j<other_studies.length; j++) {
-	   var other_study = other_studies[j];
-	   if(j>0) {
-		 query_str += " UNION ";
-	   }
-	   query_str += "(select unnest(markers) from(select markers from test_studies_marker_overlap ";
-	   query_str += " WHERE '" + anchor_study_id + "' = ANY (accessions) AND '" + other_study + "' = ANY (accessions) order by cardinality(accessions) asc limit 1) table" + table_count + ")";
-	   query_str += " ";
-	   table_count = table_count + 1;    
-	 }
-	 query_str += ") table" + table_count + ")";
-	 table_count = table_count + 1;
-
-	 // Now we need to get all markers that overlap all studies into this query
-	 query_str += " EXCEPT ";
-	 query_str += "(select unnest(markers) FROM (select markers from test_studies_marker_overlap WHERE ";
-	 for(var j=0; j<study_ids_arr.length; j++) {
-	   var study = study_ids_arr[j];
-	   if(j>0) {
-		 query_str += " AND ";
-	   }
-	   query_str += "'" + study + "' = ANY(accessions) ";
-	   
-	 } 
-	 query_str += ") table_overlap_all)) count_table";
-
-	 // console.log(query_str);
-	 // var rows = pg_n_client.querySync(query_str);
-	 var qres = await client.query(query_str);
-	 var rows = qres.rows;
-	 if(rows.length > 0) {
-	   overlap_some[anchor_study_id] = rows[0]['c1'];
-	 }
-   }
-
-   console.log('overlap_some', JSON.stringify(overlap_some));
-
-   // STEP 4 - Get overlaps_none for each study
-   var overlap_none = {};
-   for (var i=0; i<study_ids_arr.length; i++) {
-	 var study_id = study_ids_arr[i];
-	 var query_str = "";
-	 query_str += "select cardinality(markers) from (";
-	 query_str += "select markers from (select array(";
-	 query_str += "(select unnest(markers) from markers_and_studies_names where accession = '" + study_id + "')";
-	 query_str += " EXCEPT ";
-	 query_str += "(select distinct markers from ";
-	 query_str += "(select unnest(markers) as markers from test_studies_marker_overlap WHERE ";
-	 var c1 = 0;
-	 for(var j=0; j<study_ids_arr.length;j++) {
-		var tmp_study_id = study_ids_arr[j];
-		if(tmp_study_id != study_id) {
-			if(c1 > 0) {
-				query_str  += " OR ";
+			// Set default overlap_some for anchor study
+			overlap_some[anchor_study_id] = 0;
+			// Get all other studies
+			var other_studies = [];
+			for(var j=0; j<study_ids_arr.length;j++) {
+			if(j != i) {
+				other_studies.push(study_ids_arr[j]);
 			}
-			query_str += "'" + tmp_study_id + "' = ANY (accessions) ";
-			c1 = c1 + 1;
+			}
+			// Now we have other_studies exclusive of anchor study
+
+			// We need to perform sql based on achor study versus each other study
+			var table_count = 1;
+			var query_str = "SELECT count(unnest) as c1 FROM ((select DISTINCT(unnest) FROM (";
+			for(var j=0; j<other_studies.length; j++) {
+			var other_study = other_studies[j];
+			if(j>0) {
+				query_str += " UNION ";
+			}
+			query_str += "(select unnest(markers) from(select markers from chado.test_studies_marker_overlap ";
+			query_str += " WHERE '" + anchor_study_id + "' = ANY (accessions) AND '" + other_study + "' = ANY (accessions) order by cardinality(accessions) asc limit 1) table" + table_count + ")";
+			query_str += " ";
+			table_count = table_count + 1;    
+			}
+			query_str += ") table" + table_count + ")";
+			table_count = table_count + 1;
+
+			// Now we need to get all markers that overlap all studies into this query
+			query_str += " EXCEPT ";
+			query_str += "(select unnest(markers) FROM (select markers from chado.test_studies_marker_overlap WHERE ";
+			for(var j=0; j<study_ids_arr.length; j++) {
+			var study = study_ids_arr[j];
+			if(j>0) {
+				query_str += " AND ";
+			}
+			query_str += "'" + study + "' = ANY(accessions) ";
+			
+			} 
+			query_str += ") table_overlap_all)) count_table";
+
+			console.log("STEP 3: " + query_str);
+			// var rows = pg_n_client.querySync(query_str);
+			var qres = await client.query(query_str);
+			var rows = qres.rows;
+			if(rows.length > 0) {
+			overlap_some[anchor_study_id] = rows[0]['c1'];
+			}
 		}
-		
-	 }
-	 query_str += ")w)";
-	 // This has a bug when I test it with only 408 and 480 ()
-	 // query_str += "(select unnest(markers) as markers from test_studies_marker_overlap WHERE '" + study_id + "' = ANY (accessions))w) ";
-	 query_str += ")";
-	 query_str += "as markers )";
-	 query_str += "x)";
-	 query_str += "y;";
-	 
-	 // var rows = pg_n_client.querySync(query_str);
-	 var qres = client.query(query_str);
-	 var rows = qres.rows;
-	 if(rows.length > 0) {
-	   overlap_none[study_id] = rows[0]['cardinality'];
-	 }      
-	 
-   }
-   console.log('overlap_none', JSON.stringify(overlap_none));
+
+		console.log('overlap_some', JSON.stringify(overlap_some));
+
+		// STEP 4 - Get overlaps_none for each study
+		var overlap_none = {};
+		for (var i=0; i<study_ids_arr.length; i++) {
+			var study_id = study_ids_arr[i];
+			var query_str = "";
+			query_str += "select cardinality(markers) from (";
+			query_str += "select markers from (select array(";
+			query_str += "(select unnest(markers) from chado.markers_and_studies_names where accession = '" + study_id + "')";
+			query_str += " EXCEPT ";
+			query_str += "(select distinct markers from ";
+			query_str += "(select unnest(markers) as markers from chado.test_studies_marker_overlap WHERE ";
+			var c1 = 0;
+			for(var j=0; j<study_ids_arr.length;j++) {
+				var tmp_study_id = study_ids_arr[j];
+				if(tmp_study_id != study_id) {
+					if(c1 > 0) {
+						query_str  += " OR ";
+					}
+					query_str += "'" + tmp_study_id + "' = ANY (accessions) ";
+					c1 = c1 + 1;
+				}
+				
+			}
+			query_str += ")w)";
+			// This has a bug when I test it with only 408 and 480 ()
+			// query_str += "(select unnest(markers) as markers from test_studies_marker_overlap WHERE '" + study_id + "' = ANY (accessions))w) ";
+			query_str += ")";
+			query_str += "as markers )";
+			query_str += "x)";
+			query_str += "y;";
+			
+			console.log("STEP 4: " + query_str);
+			// var rows = pg_n_client.querySync(query_str);
+			var qres = await client.query(query_str);
+			var rows = qres.rows;
+			if(rows.length > 0) {
+				overlap_none[study_id] = rows[0]['cardinality'];
+			}      
+			
+		}
+		console.log('overlap_none', JSON.stringify(overlap_none));
 
 
-   // STEP 5 - generate the venn format needed
+		// STEP 5 - generate the venn format needed
 
-   var venn_array = [];
+		var venn_array = [];
 
-   // Add all_studies_intersect
-   var set_object = {};
-   set_object['sets'] = [];
-   var study_id = "";
-   for(var i=0; i<study_ids_arr.length; i++) {
-	   study_id = study_ids_arr[i];
-
-	   set_object['sets'].push(study_id);
-   }
-   set_object['size'] = overlap_all[study_id];
-   venn_array.push(set_object);  
-
-
-   // Put each overlap_pairs object into the venn_array (this is overlaps between each pair
-   // of studies)
-   for (var i=0; i<overlap_pairs.length; i++) {
-	   if(!venn_array.includes(overlap_pairs[i])) {
-	   	venn_array.push(overlap_pairs[i]);
-	   }
-   }
-
-
-	// Size per study
-	for(var i=0; i<study_ids_arr.length; i++) {
-		var study_id = study_ids_arr[i];
+		// Add all_studies_intersect
 		var set_object = {};
 		set_object['sets'] = [];
-		set_object['sets'].push(study_id);
-		set_object['size'] = total_snps_per_study[study_id];
-		venn_array.push(set_object);
-	}
+		var study_id = "";
+		for(var i=0; i<study_ids_arr.length; i++) {
+			study_id = study_ids_arr[i];
+
+			set_object['sets'].push(study_id);
+		}
+		set_object['size'] = overlap_all[study_id];
+		venn_array.push(set_object);  
+
+
+		// Put each overlap_pairs object into the venn_array (this is overlaps between each pair
+		// of studies)
+		for (var i=0; i<overlap_pairs.length; i++) {
+			if(!venn_array.includes(overlap_pairs[i])) {
+				venn_array.push(overlap_pairs[i]);
+			}
+		}
+
+
+		// Size per study
+		for(var i=0; i<study_ids_arr.length; i++) {
+			var study_id = study_ids_arr[i];
+			var set_object = {};
+			set_object['sets'] = [];
+			set_object['sets'].push(study_id);
+			set_object['size'] = total_snps_per_study[study_id];
+			venn_array.push(set_object);
+		}
 
 
 
-  console.log('venn_array', JSON.stringify(venn_array));
+  		console.log('venn_array', JSON.stringify(venn_array));
 
 
-	// Create a results object to be returned
-	var results = {
-		'study_ids_arr': study_ids_arr,
-		'venn_array': venn_array,
-		'overlap_none': overlap_none
-	}		
+		// Create a results object to be returned
+		var results = {
+			'study_ids_arr': study_ids_arr,
+			'venn_array': venn_array,
+			'overlap_none': overlap_none
+		}		
 
-	// Now we have all permutations, perform SQL calls
-	// for (var i=0; i<result_pairs.length; i++) {
-	// 	var pair = result_pairs[i];
-	// 	console.log(pair);
-	// }
+		// Now we have all permutations, perform SQL calls
+		// for (var i=0; i<result_pairs.length; i++) {
+		// 	var pair = result_pairs[i];
+		// 	console.log(pair);
+		// }
 
-   // NOTE: ALWAYS REMEMBER TO CLOSE THE pg_n_client connection at the end!
-   // pg_n_client.end();
+		// NOTE: ALWAYS REMEMBER TO CLOSE THE pg_n_client connection at the end!
+		// pg_n_client.end();
    		client.release();
 
 	   	res.send(JSON.stringify(results));
 	}
 	catch (err) { 
+		console.log("ERROR catched");
+		console.log(err) 
 		try {
 			client.release();
 		}
 		catch (err2) {
 
 		}
-		console.log(err) 
+		
 	}
 }
 
@@ -3282,6 +3288,7 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
       }
     }
     query_str += " order by cardinality desc limit 1";
+	console.log(query_str);
     
     // Perform the query to get the results of total_overlaps
     // var rows = pg_n_client.querySync(query_str);
@@ -3313,6 +3320,7 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
       }
     }
     query_str += ") order by cardinality;"
+	console.log(query_str);
     
     // Perform the query to get the results of total snps per studies (each row has the total per study)
     // var rows = pg_n_client.querySync(query_str);
@@ -3372,6 +3380,7 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
         
       } 
       query_str += ") table_overlap_all)) count_table";
+	  console.log(query_str);
 
       // console.log(query_str);
       // var rows = pg_n_client.querySync(query_str);
@@ -3399,7 +3408,7 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
       query_str += "as markers )";
       query_str += "x)";
       query_str += "y;";
-      
+      console.log(query_str);
       // var rows = pg_n_client.querySync(query_str);
 	  var qres = await client.query(query_str);
 	  var rows = qres.rows;
@@ -3723,7 +3732,7 @@ exports.genotypes_variant_filtering_panel_filter_by_genotypes_rules_json = funct
 		var analysis_id = req.body.analysis_id;
 		var study_accession = req.body.study_accession;
 		var vcf_location = req.body.vcf_location;
-		var directory = '/isg/treegenes/cartograplant_analysis/' + analysis_id + '/' + study_accession + '/variant-filtering-pipeline/filter-by-genotypes';	
+		var directory = '/isg/treegenes/cartograplant_analysis/' + analysis_id + '/variant-filtering-pipeline/filter-by-genotypes';	
 		
 		var vcf_location_parts = vcf_location.split('/');
 		var vcf_filename = vcf_location_parts[vcf_location_parts.length - 1];
@@ -3734,7 +3743,7 @@ exports.genotypes_variant_filtering_panel_filter_by_genotypes_rules_json = funct
 		results['study_accession'] = study_accession;
 		results['analysis_id'] = analysis_id;
 		
-		var json_raw = fs.readFileSync(directory + '/rule_options.json');
+		var json_raw = fs.readFileSync(directory + '/' + vcf_filename_without_ext + '_rule_options.json');
 		var json_object = JSON.parse(json_raw);
 		results['rules_json'] = json_object;
 		results['status'] = true;
@@ -3783,34 +3792,178 @@ exports.genotypes_variant_filtering_panel_get_statistics = function (req, res, n
 	}
 }
 
+// manage_study_context_check_completion_json
+exports.manage_study_context_check_completion_json = function(req, res, next) {
+	var results = {};
+	try {
+		console.log(req.body);
+		// var workspace_dir = '/isg/treegenes/cartograplant_analysis_workspaces/' + user_id + '/' + workspace_name;
+		var analysis_id = req.body.analysis_id;
+		var directory = '/isg/treegenes/cartograplant_analysis/' + analysis_id + '/variant-filtering-pipeline/study-context';
+		console.log('Analysis Directory: ' + directory);
+		fs.mkdirSync(directory, { recursive: true });
+		var completion_json_location = directory + '/completion_message.json';
+		console.log('Completion JSON location: ' + completion_json_location);
+		var response = "";
+		if (fs.existsSync(completion_json_location)) {
+			try {
+				response = fs.readFileSync(completion_json_location);
+			} catch (err) {
+				console.log(err);
+			}
+			results['response'] = response;
+			results['status'] = 'success';
+		}
+		else {
+			results['response'] = "File not found";
+			results['status'] = 'File not found';
+		}
+		res.status(200).send(JSON.stringify(results));
+		return;
+
+	}
+	catch (err) {
+		results['status'] = 'error';
+		results['response'] = err;
+		res.status(200).send(JSON.stringify(results));
+		return;
+	}
+}
+
+exports.manage_study_context_run = function(req, res, next) {
+	try {
+		console.log(req.body);
+		// var workspace_dir = '/isg/treegenes/cartograplant_analysis_workspaces/' + user_id + '/' + workspace_name;
+		var payload_json = req.body.payload;
+		var analysis_id = req.body.analysis_id;
+		var directory = '/isg/treegenes/cartograplant_analysis/' + analysis_id + '/variant-filtering-pipeline/study-context';
+		console.log('Analysis Directory: ' + directory);
+		fs.mkdirSync(directory, { recursive: true });
+		var payload_json_location = directory + '/payload.json';
+		console.log('Payload location: ' + payload_json_location);
+		if (fs.existsSync(payload_json_location) == true) {
+			fs.unlinkSync(payload_json_location);
+		}
+		fs.writeFileSync(payload_json_location, payload_json);
+
+		const exec = require('child_process').exec;
+		var cmd = "cd " + directory + '; ';
+		// -r main or dev -hub gitlab
+		// Version 1 used --input 'vcf_location'
+		// cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -r main -profile treegenes --outdir \'' + workspace_dir + '\' --input \'' + vcf_location + '\' --panel \'filter-by-genotypes\';';
+		// Version 2 uses --input structured_json.json
+		cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -r dev --panel \'study-context\' --input \'' + payload_json_location + '\';';
+		console.log('cmd', cmd);
+		var results = {
+			status: 'failed',
+		};
+		// results['study_accession'] = study_accession;
+		console.log('Performing study context processing...');
+		var child = exec(cmd, function(error, stdout, stderr) {
+			
+			if(error) {
+				console.log(error);
+				results['error'] = true;
+				// results['study_accession'] = study_accession;
+				results['error_msg'] = error;
+				results['completion_message'] = {};
+				try {
+					results['completion_message'] = JSON.parse(fs.readFileSync(directory + '/completion_message.json'));
+				} catch (err) {}
+				res.status(200).send(JSON.stringify(results));
+				return;
+			}
+
+			results['status'] = 'success';
+			// results['study_accession'] = study_accession;
+			results['analysis_id'] = analysis_id;
+			console.log('stderr', stderr);
+			console.log('stdout', stdout);
+
+			
+			res.status(200).send(JSON.stringify(results));
+			return;
+
+		});
+	}
+	catch (err) {
+		console.log(err);
+		res.status(200).send({
+			error: JSON.stringify(err)
+		});
+		return;
+	}
+}
+
 exports.genotypes_variant_filtering_panel_filter_by_genotypes = function(req, res, next) {
 	try {
 		var user_id = req.body.user_id;
 		var workspace_name = req.body.workspace_name;
-		var workspace_dir = '/isg/treegenes/cartograplant_analysis_workspaces/' + user_id + '/' + workspace_name;
-		var vcf_location = req.body.vcf_location;
-		if (!fs.existsSync(vcf_location)) {
-			vcf_location = vcf_location + '.gz';
-		}
 		var analysis_id = req.body.analysis_id;
-		var study_accession = req.body.study_accession;
-		var directory = '/isg/treegenes/cartograplant_analysis/' + analysis_id + '/' + study_accession + '/variant-filtering-pipeline/filter-by-genotypes';
+		var workspace_dir = '/isg/treegenes/cartograplant_analysis_workspaces/' + user_id + '/' + workspace_name;
+		// Version 1
+		// var vcf_location = req.body.vcf_location;
+		// if (!fs.existsSync(vcf_location)) {
+		// 	vcf_location = vcf_location + '.gz';
+		// }
+		// var study_accession = req.body.study_accession;
+		// var directory = '/isg/treegenes/cartograplant_analysis/' + analysis_id + '/' + study_accession + '/variant-filtering-pipeline/filter-by-genotypes';
+		// Version 2
+		// structured_json as key -> object
+		
+		var directory = '/isg/treegenes/cartograplant_analysis/' + analysis_id + '/variant-filtering-pipeline/filter-by-genotypes';
+		console.log('Analysis Directory: ' + directory);
 		fs.mkdirSync(directory, { recursive: true });
+		var structured_json_location = directory + '/structured_json.json';
+		console.log('Structured location: ' + structured_json_location);
+		try {
+			fs.unlinkSync(structured_json_location);
+		} catch (err) {
+			console.log(err);
+		}
+		console.log(req.body);
+
+		var structured_json = JSON.parse(req.body.structured_json);
+
+		// Verify files exist at location and try the .gz patch
+		var studies = Object.keys(structured_json['studies']);
+		for (var i = 0; i < studies.length; i++) {
+			var study = studies[i];
+			var vcf_location = structured_json['studies'][study][0];
+			if (!fs.existsSync(vcf_location)) {
+				vcf_location = vcf_location + '.gz';
+				if (!fs.existsSync(vcf_location)) {
+					vcf_location = null;
+				}
+			}
+			structured_json['studies'][study][0] = vcf_location;
+		}
+
+		var structured_json_data = JSON.stringify(structured_json);
+		fs.writeFileSync(structured_json_location, structured_json_data);
+		console.log('Structured JSON data: ' + structured_json_data);
+
 		const exec = require('child_process').exec;
 		var cmd = "cd " + directory + '; ';
-		cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -hub gitlab -r main -profile treegenes --outdir \'' + workspace_dir + '\' --input \'' + vcf_location + '\' --panel \'filter-by-genotypes\';';
+		// -r main or dev -hub gitlab
+		// Version 1 used --input 'vcf_location'
+		// cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -r main -profile treegenes --outdir \'' + workspace_dir + '\' --input \'' + vcf_location + '\' --panel \'filter-by-genotypes\';';
+		// Version 2 uses --input structured_json.json
+		cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -r dev -profile treegenes --outdir \'' + workspace_dir + '\' --input \'' + structured_json_location + '\' --panel \'filter-by-genotypes\';';
 		console.log('cmd', cmd);
 		var results = {
-			status: 'failed'
+			status: 'failed',
+			studies: studies
 		};
-		results['study_accession'] = study_accession;
+		// results['study_accession'] = study_accession;
 		console.log('req.body', req.body);
-		console.log('Performing variant filtering pipeline (filter by genotypes) for ' + study_accession);
+		console.log('Performing variant filtering pipeline (filter by genotypes) for ' + JSON.stringify(studies));
 		var child = exec(cmd, function(error, stdout, stderr) {
+			
 			if(error) {
 				console.log(error);
 				results['error'] = true;
-				results['study_accession'] = study_accession;
+				// results['study_accession'] = study_accession;
 				results['error_msg'] = error;
 				results['completion_message'] = {};
 				try {
@@ -3821,25 +3974,45 @@ exports.genotypes_variant_filtering_panel_filter_by_genotypes = function(req, re
 			}
 
 			results['status'] = 'success';
-			results['study_accession'] = study_accession;
+			// results['study_accession'] = study_accession;
 			results['analysis_id'] = analysis_id;
 			console.log('stderr', stderr);
 			console.log('stdout', stdout);
 
-			// Get the JSON
-			// var analysis_id = req.body.analysis_id;
-			// var study_accession = req.body.study_accession;
-			// var vcf_location = req.body.vcf_location;
-			var vcf_location_parts = vcf_location.split('/');
-			var vcf_filename = vcf_location_parts[vcf_location_parts.length - 1];
-			// var vcf_filename_without_ext = vcf_filename.replace('.vcf', '');
-			var vcf_filename_without_ext = vcf_filename.split('.').slice(0, -1).join('.');
-			console.log('vcf_filename_without_ext', vcf_filename_without_ext);
-			results['vcf_filename_without_ext'] = vcf_filename_without_ext;
-			// var json_raw = fs.readFileSync('/isg/treegenes/cartograplant_analysis/' + analysis_id + '/' + study_accession + '/variant-filtering-pipeline/filter-by-genotypes/' + vcf_filename_without_ext + '.json');
-			var json_raw = fs.readFileSync('/isg/treegenes/cartograplant_analysis/' + analysis_id + '/' + study_accession + '/variant-filtering-pipeline/filter-by-genotypes/rule_options.json');
-			var json_object = JSON.parse(json_raw);
-			results['rules_json'] = json_object;
+			// Version 1
+			// // Get the JSON
+			// // var analysis_id = req.body.analysis_id;
+			// // var study_accession = req.body.study_accession;
+			// // var vcf_location = req.body.vcf_location;
+			// var vcf_location_parts = vcf_location.split('/');
+			// var vcf_filename = vcf_location_parts[vcf_location_parts.length - 1];
+			// // var vcf_filename_without_ext = vcf_filename.replace('.vcf', '');
+			// var vcf_filename_without_ext = vcf_filename.split('.').slice(0, -1).join('.');
+			// console.log('vcf_filename_without_ext', vcf_filename_without_ext);
+			// results['vcf_filename_without_ext'] = vcf_filename_without_ext;
+			// // var json_raw = fs.readFileSync('/isg/treegenes/cartograplant_analysis/' + analysis_id + '/' + study_accession + '/variant-filtering-pipeline/filter-by-genotypes/' + vcf_filename_without_ext + '.json');
+			// var json_raw = fs.readFileSync('/isg/treegenes/cartograplant_analysis/' + analysis_id + '/' + study_accession + '/variant-filtering-pipeline/filter-by-genotypes/rule_options.json');
+			// var json_object = JSON.parse(json_raw);
+			// results['rules_json'] = json_object;
+			// res.send(JSON.stringify(results));
+			// return;
+
+			// // Version 2
+			// // Get the JSON
+			// // var analysis_id = req.body.analysis_id;
+			// // var study_accession = req.body.study_accession;
+			// // var vcf_location = req.body.vcf_location;
+			// var vcf_location_parts = vcf_location.split('/');
+			// var vcf_filename = vcf_location_parts[vcf_location_parts.length - 1];
+			// // var vcf_filename_without_ext = vcf_filename.replace('.vcf', '');
+			// var vcf_filename_without_ext = vcf_filename.split('.').slice(0, -1).join('.');
+			// console.log('vcf_filename_without_ext', vcf_filename_without_ext);
+			// results['vcf_filename_without_ext'] = vcf_filename_without_ext;
+			// // var json_raw = fs.readFileSync('/isg/treegenes/cartograplant_analysis/' + analysis_id + '/' + study_accession + '/variant-filtering-pipeline/filter-by-genotypes/' + vcf_filename_without_ext + '.json');
+			// var json_raw = fs.readFileSync('/isg/treegenes/cartograplant_analysis/' + analysis_id + '/' + study_accession + '/variant-filtering-pipeline/filter-by-genotypes/rule_options.json');
+			// var json_object = JSON.parse(json_raw);
+			// results['rules_json'] = json_object;
+			
 			res.send(JSON.stringify(results));
 			return;
 
@@ -5162,14 +5335,15 @@ exports.force_reload_mama = async function(req, res, next) {
 		while (page_index < page_total) { 
 			page_index = page_index + 1;
 			try {
-				var url = "https://anecdata.org/rest_observations_v1.json?project_id=316&page=" + page_index;
+				var url = "https://anecdata.org/rest_observations_v1.json?project_id=316&page=" + page_index + "&nocache=" + Math.floor(Date.now() / 1000);
 				console.log('URL:' + url);
 				var config2 = {
 					method: 'GET',
 					url: url,
 					headers: {
 						//"Accept": "application/json",
-						"Authorization": config.conf_anecdata.token_loggedin
+						"Authorization": config.conf_anecdata.token_loggedin,
+						'Cache-Control': 'no-cache'
 					}
 				}
 				// console.log(config);
@@ -5232,12 +5406,33 @@ exports.force_reload_treesnap = async function(req, res, next) {
 		//var uniquename = rows[0].uniquename;
 		//var treesnap_num = uniquename.split(".")[1];
 		var page_num = 1;
-		
-		console.log('Performing Treesnap_add page no:' + page_num);
-		utils.treesnap_terms = [];
-		utils.treesnap_add("https://treesnap.org/web-services/v1/observations?page=" + page_num);
-		res.status(200).json("success");
-		return;
+		query("DELETE FROM public.ct_trees_treesnap", [], function (err, rows, result) {
+			if (err) {
+				console.log(err);
+				res.status(400);
+				return;
+			}
+			query("DELETE FROM public.ct_trees_evome", [], function (err, rows, result) {
+				if (err) {
+					console.log(err);
+					res.status(400);
+					return;
+				}
+
+				query("DELETE FROM public.ct_trees_phenotypes_treesnap", [], function (err, rows, result) {
+					console.log('Performing Treesnap_add page no:' + page_num);
+					utils.treesnap_terms = [];
+					try {
+						utils.treesnap_add("https://treesnap.org/web-services/v1/observations?page=" + page_num);
+					}
+					catch (err) {
+						console.log(err);
+					}
+					res.status(200).json("success");
+					return;
+				});
+			});
+		});
 	}
 	else {
 		res.status(200).json("no asup was given");
@@ -5855,7 +6050,9 @@ exports.tree_get_basic = function(req, res, next) {
 			}
 			query("SELECT u.name as name, r.name as role FROM public.users u INNER JOIN public.users_roles ur ON (u.uid = ur.uid) INNER JOIN public.role r ON (r.rid = ur.rid) WHERE pass LIKE $1", [pass_hash], function(err, rows_user_roles, result) {
 				var private_source_ids = [];
+				var username = null;
 				for (var i = 0; i < rows_user_roles.length; i++) {
+					username = rows_user_roles[i]["name"];
 					if (rows_user_roles[i]["role"] == "mama") {
 						private_source_ids.push(6);
 					}
@@ -5890,6 +6087,15 @@ exports.tree_get_basic = function(req, res, next) {
 									}
 								}
 
+								// Check if we should allow private data (latitude_precise, longitude_precise) for treesnap scientists
+								if (rows[0]['submitter_email'] != undefined || rows[0]['submitter_email'] != undefined) {
+									if (username == rows[0]['submitter_email']) {
+										console.log('Permission granted for treesnap scientist (detected): ' + rows[0].submitter_email);
+										rows[0].latitude = rows[0].latitude_precise;
+										rows[0].longitude = rows[0].longitude_precise;
+									}
+								}
+
 								// Once we've swapped precision, we don't need it anymore (for people not logged in, this data will thus be empty / safe)
 								try {
 									delete rows[0].latitude_precise;
@@ -5897,6 +6103,11 @@ exports.tree_get_basic = function(req, res, next) {
 								} catch (err) {
 
 								}
+
+								// Remove submitter_emails
+								try {
+									delete rows[0].submitter_email;
+								} catch (err) {}
 
 								//console.log(rows[0]);
 								//console.log(rows_endangered[0]);
@@ -6247,21 +6458,48 @@ exports.publications_tree_get = function(req, res, next) {
 				  rejectUnauthorized: false
 				})
 			});
-			axios_instance({
-				method: 'get',
-				url: "https://treesnap.org/web-services/v1/observation/" + tree_id,
-				headers: {
-					"Authorization": "Bearer " + process.env.TREESNAP_BEARER,
-					"Accept": "application/json",
-				},
+			try {
+				axios_instance({
+					method: 'get',
+					url: "https://treesnap.org/web-services/v1/observation/" + tree_id,
+					timeout: 4000,
+					headers: {
+						"Authorization": "Bearer " + process.env.TREESNAP_BEARER,
+						"Accept": "application/json",
+						'Cache-Control': 'no-cache'
+					},
 
-			}).then(function(response) {
-				ct_cache.put(key, response.data, cache_time_24);
-				console.log(response.data);
-				// res.status(200).json(JSON.parse(body).data);
-				res.status(200).json(response.data);
+				}).then(function(response) {
+					try {
+						ct_cache.put(key, response.data, cache_time_24);
+						console.log(response.data);
+						if (isCircular(response.data)) {
+							res.status(500).json({error: "Object is circular, which usually means the treesnap lookup failed"});
+							return;
+						}
+						// protect certain data
+						delete response.data['submitter_email'];
+						response.data['longitude'] = response.data['fuzzy_longitude'];
+						response.data['latitude'] = response.data['fuzzy_latitude'];
+						// res.status(200).json(JSON.parse(body).data);
+						res.status(200).json(response.data);
+						return;
+					}
+					catch (err) {
+						res.status(500).json({error: err});
+						return;
+					}
+					return;
+				}).catch(function (err) {
+					res.status(500).json({error: err});
+					console.log(err)
+					return;
+				});
+			}
+			catch (err) {
+				res.status(500).json({error: err});
 				return;
-			});
+			}
 
 			// DEPRECATED: Request module has been deprecated
 			// var req_result = request(options, function(error, response, body) {
@@ -6282,11 +6520,17 @@ exports.publications_tree_get = function(req, res, next) {
 			// });
 		}
 		else {
-			console.log(val);
-			res.status(200).json(val);
+			console.log(cached_val);
+			res.status(200).json(cached_val);
 			return;
 		}
 	});
+}
+
+function isCircular (d) {
+	try {JSON.stringify(d)}
+	catch (e) {return true}
+	return false
 }
 
 // THIS FUNCTION IS UNUSED SO COMMENTED OUT
@@ -6569,11 +6813,13 @@ exports.trees_list_qbuilder = function(req, res, next) {
 			console.log("PASS_HASH: " + pass_hash);
 			query("SELECT u.name as name, r.name as role FROM public.users u INNER JOIN public.users_roles ur ON (u.uid = ur.uid) INNER JOIN public.role r ON (r.rid = ur.rid) WHERE pass LIKE $1", [pass_hash], function(err, rows_user_roles, result) {
 				var private_source_ids = [];
+				var username = null;
 				for (var i = 0; i < rows_user_roles.length; i++) {
+					username = rows_user_roles[i]["name"];
 					// console.log(rows_user_roles);
 					if (rows_user_roles[i]["role"] == "mama") {
 						private_source_ids.push(6);
-						query_str += " OR (source_id = 6 AND is_private = 1)";
+						query_str += " OR ((source_id = 6 AND is_private = 1) AND species IS NOT 'Fraxinus nigra') ";
 					}
 				}
 				console.log(query_str);
@@ -6608,6 +6854,17 @@ exports.trees_list_qbuilder = function(req, res, next) {
 								}
 							}
 						}
+
+						// Check if we should allow private data (latitude_precise, longitude_precise) for treesnap scientists
+						if (rows[0]['submitter_email'] != undefined || rows[0]['submitter_email'] != undefined) {
+							if (username == rows[0]['submitter_email']) {
+								console.log('Permission granted for treesnap scientist (detected): ' + rows[0].submitter_email);
+								rows[0].latitude = rows[0].latitude_precise;
+								rows[0].longitude = rows[0].longitude_precise;
+							}
+						}
+
+						
 
 						// Record the widest cross section
 						if(lon_leftmost > rows[i]["longitude"]) {

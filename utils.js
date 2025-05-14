@@ -6,6 +6,7 @@ const config = require('./config');
 const query = require("./query");
 var pg_native_client = require('pg-native');
 
+
 const pool = new Pool({
 	host: process.env.DB_HOST,
 	port: process.env.DB_PORT,
@@ -37,6 +38,7 @@ function treesnap_add_get_terms_only(base_url) {
 			headers: {
 				"Authorization": "Bearer " + process.env.TREESNAP_BEARER,
 				"Accept": "application/json",
+				'Cache-Control': 'no-cache'
 			},
 		}
 
@@ -59,6 +61,7 @@ function treesnap_add_get_terms_only(base_url) {
 				headers: {
 					"Authorization": "Bearer " + process.env.TREESNAP_BEARER,
 					"Accept": "application/json",
+					'Cache-Control': 'no-cache'
 				}
 			}).then(function(response) {
 				try {
@@ -240,6 +243,7 @@ async function treesnap_add(base_url) {
 			headers: {
 				"Authorization": "Bearer " + process.env.TREESNAP_BEARER,
 				"Accept": "application/json",
+				'Cache-Control': 'no-cache'
 			},
 		}
 
@@ -261,11 +265,13 @@ async function treesnap_add(base_url) {
 				headers: {
 					"Authorization": "Bearer " + process.env.TREESNAP_BEARER,
 					"Accept": "application/json",
+					'Cache-Control': 'no-cache'
 				}
 			}
 			// console.log(config);
 			axios_instance(config).then(async function(response) {
 				try {
+					console.log(Object.keys(response));
 					var data = response.data;
 					data = data.data; // boy is this confusing but okay
 					console.log('Keys:' + Object.keys(data.data));
@@ -443,8 +449,8 @@ async function mama_ash_eab_surveys_add_tree(tree_id, item) {
     }
 
 	// Add jitter to the lat and lng values
-	var lat = "" + item.location.lat; // turn to string
-	var lng = "" + item.location.lng; // turn to string
+	var lat = item.location.lat;
+	var lng = item.location.lng; 
 
 	// LATITUDE
 	// 1 degree of latitude is approximately 111 kilometers (69 miles). 
@@ -464,40 +470,29 @@ async function mama_ash_eab_surveys_add_tree(tree_id, item) {
 	var lat_jittered = '';
 	var lng_jittered = '';
 
-	if (lat.includes('.')) {
-		var right_decimals = lat.split('.')[1]
-		var length = right_decimals.length;
-		if (length >= 2) {
-			var decimal_val = parseInt(right_decimals.substring(1,2));
-			if (decimal_val > 0 && decimal_val <= 9) {
-				lat_jittered = parseFloat(lat) - jitter;
-			}
-			else {
-				lat_jittered = parseFloat(lat) + jitter;
-			}
-		}
-	}
-	else {
-		lat_jittered = parseFloat(lat) + jitter;
-	}
 
-	if (lng.includes('.')) {
-		var right_decimals = lng.split('.')[1]
-		var length = right_decimals.length;
-		if (length >= 2) {
-			var decimal_val = parseInt(right_decimals.substring(1,2));
-			if (decimal_val > 0 && decimal_val <= 9) {
-				lng_jittered = parseFloat(lng) - jitter;
-			}
-			else {
-				lng_jittered = parseFloat(lng) + jitter;
-			}
-		}
+	var randomInt = Math.floor(Math.random() * 5) + 1; // random between 1 and 5
+	var randomChoice = Math.floor(Math.random() * 2) + 1; // random between 1 (negative) and 2 (positive)
+	var generated_jitter = 0;
+	if (randomChoice == 1) {
+		generated_jitter = jitter * randomInt * -1;
 	}
 	else {
-		lng_jittered = parseFloat(lng) + jitter;
+		generated_jitter = jitter * randomInt;
 	}
-	
+	lat_jittered = parseFloat(lat) + generated_jitter;
+
+	var randomInt = Math.floor(Math.random() * 5) + 1; // random between 1 and 5
+	var randomChoice = Math.floor(Math.random() * 2) + 1; // random between 1 (negative) and 2 (positive)
+	var generated_jitter = 0;
+	if (randomChoice == 1) {
+		generated_jitter = jitter * randomInt * -1;
+	}
+	else {
+		generated_jitter = jitter * randomInt;
+	}
+	lng_jittered = parseFloat(lng) + generated_jitter;
+
 	
     await client.query(
 		"INSERT INTO public.ct_trees_mama_ash_eab_surveys " + 
@@ -609,6 +604,47 @@ async function mama_ash_eab_surveys_add_phenotype_rows(tree_id, fields) {
 	client.release();
 }
 
+async function download_treesnap_image(tree_data, image_category, icimages_index, image_link) {
+
+	const https = require('https');
+	const fs = require('fs');
+
+	var images_directory = '/isg/treegenes/evome/image_data';
+	fs.mkdirSync(images_directory, { recursive: true});
+
+	const fileUrl = image_link;
+						
+	var filename = new URL(image_link).pathname.split('/').pop();
+	console.log(filename)
+	var file_ext = ''
+
+	if (filename.toLowerCase().includes('.jpg') == true || filename.toLowerCase().includes('.jpeg') == true) {
+		file_ext = '.jpg'
+	}
+	else if (filename.toLowerCase().includes('.png') == true) {
+		file_ext = '.png'
+	}
+	else {
+		file_ext = '.unsupported'
+	}
+	const destination = images_directory + '/'  + tree_data['id'] + '_' + image_category.toLowerCase().replaceAll(" ", "_") + '_' + (icimages_index + 1) + file_ext;
+
+	const file = fs.createWriteStream(destination);
+
+	https.get(fileUrl, (response) => {
+		response.pipe(file);
+		file.on('finish', () => {
+			file.close(() => {
+				console.log('File downloaded successfully');
+			});
+		});
+	}).on('error', (err) => {
+		fs.unlink(destination, () => {
+			console.error('Error downloading file:', err);
+		});
+	});
+}
+
 async function treesnap_add_row(tree_data) {
 	console.log('TreeSnap ID:' + tree_data["id"]);
 	// console.log(tree_data);
@@ -618,7 +654,7 @@ async function treesnap_add_row(tree_data) {
 		if(tree_data["species"] == "Dummyval") {
 			// Try to populate using otherLabel(treesnap) which translates to TG common_name (organism table)
 			var otherLabel = tree_data["meta_data"]["otherLabel"];
-			console.log("otherLabel:" + otherLabel);
+			// console.log("otherLabel:" + otherLabel);
 			if (otherLabel == undefined || otherLabel == "undefined" || otherLabel == "Other" || otherLabel == "Unknown" || otherLabel == "unknown") {
 				return; // don't continue to add this tree
 			}
@@ -632,8 +668,8 @@ async function treesnap_add_row(tree_data) {
 				// pg_n_client_tg.end(); //Disconnect from TreeGenes database server
 				if(cn_rows.length > 0) {
 					// we found a match in the db that has the common_name and genus and species!
-					console.log("Found a match for otherLabel and common_name");
-					console.log(cn_rows[0]);
+					//console.log("Found a match for otherLabel and common_name");
+					//console.log(cn_rows[0]);
 					tree_data["genus"] = cn_rows[0].genus;
 					tree_data["species"] = cn_rows[0].species;
 				}
@@ -646,13 +682,13 @@ async function treesnap_add_row(tree_data) {
 			// continue like normal, no mods necessary
 		}
 		// fs.appendFileSync('meta_data.txt', JSON.stringify(tree_data['meta_data']) + "\n");
-		console.log('[TREESNAP] INSERTING TREESNAP TREE');
+		// console.log('[TREESNAP] INSERTING TREESNAP TREE');
 		var category = null;
 		var category_lowercase = '';
 		if (tree_data['category'] != undefined) {
 			category = tree_data['category'];
 			category_lowercase = category.toLowerCase();
-			console.log(category + ' vs ' + category_lowercase);
+			// console.log(category + ' vs ' + category_lowercase);
 			if (category_lowercase == 'alaskan willow') {
 				console.log('Found alaskan willow category');
 				tree_data["genus"] = 'Salix'; // Default Genus
@@ -669,14 +705,59 @@ async function treesnap_add_row(tree_data) {
 				}
 			}
 		}
+		
+		var latitude = "";
+		var longitude = "";
+		var latitude_precise = "";
+		var longitude_precise = "";
+		var is_private = 0;
+		var submitter_email = null;
+		if (tree_data['submitter_email'] != null && tree_data['submitter_email'] != undefined) {
+			is_private = 1;
+			submitter_email = tree_data['submitter_email'];
+		}
+		latitude = tree_data['fuzzy_latitude'];
+		longitude = tree_data['fuzzy_longitude'];
+		latitude_precise = tree_data['latitude'];
+		longitude_precise = tree_data['longitude'];
+		
+		
+		var submitter_email = tree_data['submitter_email'];
+		if (submitter_email == undefined) {
+			submitter_email = null;
+		}
+
+
+		// console.log(category_lowercase);
 		if (category_lowercase == 'alaskan willow') {
-			console.log('Alaskan Willow inserted into EVOME table');
-			var results = await pool.query("INSERT INTO public.ct_trees_evome (uniquename, species, genus, family, subkingdom, latitude, longitude, source_id, icon_type, category) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT(uniquename) DO NOTHING",
-				["treesnap." + tree_data["id"], tree_data["genus"] + " " + tree_data["species"], tree_data["genus"], null, null, tree_data["latitude"], tree_data["longitude"], 5, 4, category]);
+			// console.log('Alaskan Willow inserted into EVOME table');
+			var results = await pool.query("INSERT INTO public.ct_trees_evome (uniquename, species, genus, family, subkingdom, latitude, longitude, source_id, icon_type, category, latitude_precise, longitude_precise) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT(uniquename) DO NOTHING",
+				["treesnap." + tree_data["id"], tree_data["genus"] + " " + tree_data["species"], tree_data["genus"], null, null, latitude, longitude, 5, 4, category, latitude_precise, longitude_precise]);
+
+			try {
+
+				var image_categories = Object.keys(tree_data["images"]);
+				console.log(image_categories);
+				// process.exit(1);
+				for (var ic_index = 0; ic_index < image_categories.length; ic_index++) {
+					var image_category = image_categories[ic_index];
+					console.log(image_category);
+					for (var icimages_index = 0; icimages_index < tree_data["images"][image_category].length; icimages_index++) {
+						var image_link = tree_data["images"][image_category][icimages_index];
+						console.log("Image link: " + image_link);
+						download_treesnap_image(tree_data, image_category, icimages_index, image_link);
+
+					}
+				}
+			}
+			catch (err) {
+				console.log(err)
+				// process.exit(1);
+			}
 		}
 		else {
-			var results = await pool.query("INSERT INTO public.ct_trees_treesnap (uniquename, species, genus, family, subkingdom, latitude, longitude, source_id, icon_type, category) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT(uniquename) DO NOTHING",
-				["treesnap." + tree_data["id"], tree_data["genus"] + " " + tree_data["species"], tree_data["genus"], null, null, tree_data["latitude"], tree_data["longitude"], 1, 4, category]);
+			var results = await pool.query("INSERT INTO public.ct_trees_treesnap (uniquename, species, genus, family, subkingdom, latitude, longitude, source_id, icon_type, category, latitude_precise, longitude_precise, submitter_email) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) ON CONFLICT(uniquename) DO NOTHING",
+				["treesnap." + tree_data["id"], tree_data["genus"] + " " + tree_data["species"], tree_data["genus"], null, null, latitude, longitude, 1, 4, category, latitude_precise, longitude_precise, submitter_email]);
 		}
 		//console.log(tree_data['meta_data']);
 		// const client = await pool.connect()
