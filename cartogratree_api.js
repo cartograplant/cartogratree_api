@@ -14,6 +14,7 @@ const axios_instance = axios.create({
 const WebSocket = require('ws');//websocket implementation
 const pg = require('pg');//Postgres database implementation
 var pg_native_client = require('pg-native');
+
 //const isSea = require('is-sea');
 const QueryStream = require('pg-query-stream');//Postgres Query Streaming implementation
 const request = require("request");
@@ -26,6 +27,19 @@ var write_source_id_geojson_file = false; //this will force the function to writ
 var cors = require("cors")
 var app = express();
 var port = process.env.PORT || 8088;
+
+const { Pool, Client } = require("pg"); 
+console.log(process.env);
+const pool = new Pool({
+	host: config.conf.host,
+	port: config.conf.port,
+	database: config.conf.database,
+	user: config.conf.user,
+	password: config.conf.password,
+	max: 20,
+	idleTimeoutMillis: 15000,
+	connectionTimeoutMillis: 15000, 
+});
 
 var screen_enabled = false;
 
@@ -487,11 +501,22 @@ var ctapi_wss = {
 			wss.send('environmental_data_csv_line::' + header_line);
 
 			// Perform look up for each tree
+			var client = await pool.connect();
+			await client.query("set datestyle='ISO';");
+			await client.query("SET client_encoding TO 'UTF-8';");
+			await client.query("SET bytea_output TO escape;");
+			await client.query('SET SEARCH_PATH TO "public","chado"');
 			for(i = 0; i < trees_arr.length; i++) {
 				// console.log(trees_arr[i]);
-				ctapi_wss.api_generate_environmental_data_for_csv_single_tree(wss, gis_url, trees_arr[i], data_properties_objects);
-				await sleep(150);
-			}			
+				await ctapi_wss.api_generate_environmental_data_for_csv_single_tree(client, wss, gis_url, trees_arr[i], data_properties_objects);
+				// await sleep(1000);
+			}
+			try {
+				client.release();
+			} catch (err) {
+				console.log(err);
+			}
+
 		}
 		catch (err) {
 			console.log(err);
@@ -499,19 +524,20 @@ var ctapi_wss = {
 	},
 
 	// API function to generate a single CSV line of environmental data for a tree
-	api_generate_environmental_data_for_csv_single_tree: async function(wss, gis_url, tree_id, data_properties_objects) {
+	api_generate_environmental_data_for_csv_single_tree: async function(client, wss, gis_url, tree_id, data_properties_objects) {
 		// Perform a SQL lookup for the basic tree information
-		var pg_n_client = new pg_native_client();
+		// var pg_n_client = new pg_native_client();
+		// const client = "";
+		
 		try {
+			//client = await pool.connect();
 			//console.log('Connecting...');
-			pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
-			pg_n_client.querySync("set datestyle='ISO';");
-			pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
-			pg_n_client.querySync("SET bytea_output TO escape;");
-			pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+			// pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
 
 
-			var rows = pg_n_client.querySync("SELECT * FROM ct_trees WHERE uniquename = '" + tree_id + "' LIMIT 1;");
+
+			var qres = await client.query("SELECT * FROM ct_trees WHERE uniquename = '" + tree_id + "' LIMIT 1;");
+			var rows = qres.rows;
 			//console.log('Found ' + rows.length + ' tree with ID:' + tree_id);
 			if(rows.length > 0) {
 				// This is really just one tree
@@ -529,12 +555,12 @@ var ctapi_wss = {
 					//console.log(tree_basic_data_object);
 					// Perform lookups for each data property on geoserver
 					for(var j=0; j < data_properties_objects.length; j++) {
-						
-						var data_property_object = data_properties_objects[j];
-						console.log('data_property_object', data_property_object);
-						var output = await ctapi_wss.api_generate_environmental_data_for_csv_single_tree_async_geoserver_value(wss, gis_url, tree_basic_data_object, data_property_object);
-						console.log("OUTPUT:" + output);
 						try {
+							var data_property_object = data_properties_objects[j];
+							console.log('data_property_object', data_property_object);
+							var output = await ctapi_wss.api_generate_environmental_data_for_csv_single_tree_async_geoserver_value(wss, gis_url, tree_basic_data_object, data_property_object);
+							console.log("OUTPUT:" + output);
+						
 							// Try to parse the output received
 							var data_prop_query = JSON.parse(output);
 							if (data_prop_query['features'].length >= 1) {
@@ -576,20 +602,20 @@ var ctapi_wss = {
 										envdata_create_table_sql += "property_value varchar(1024) NOT NULL,";
 										envdata_create_table_sql += "UNIQUE (latitude, longitude, property_id, property_name, property_value)"
 										envdata_create_table_sql += ")";
-										pg_n_client.querySync(envdata_create_table_sql);
+										await client.query(envdata_create_table_sql);
 
 										var envdata_create_index_sql = "CREATE INDEX IF NOT EXISTS latitude_index ON public.cartogratree_envdata_" + data_property_object['layer_id'] + "(latitude)";
-										pg_n_client.querySync(envdata_create_index_sql);
+										await client.query(envdata_create_index_sql);
 										envdata_create_index_sql = "CREATE INDEX IF NOT EXISTS longitude_index ON public.cartogratree_envdata_" + data_property_object['layer_id'] + "(longitude)";
-										pg_n_client.querySync(envdata_create_index_sql);
+										await client.query(envdata_create_index_sql);
 										envdata_create_index_sql = "CREATE INDEX IF NOT EXISTS latlon_index ON public.cartogratree_envdata_" + data_property_object['layer_id'] + "(latitude, longitude)";
-										pg_n_client.querySync(envdata_create_index_sql);
+										await client.query(envdata_create_index_sql);
 
 
 										var envdata_insert_sql = "INSERT INTO public.cartogratree_envdata_" + data_property_object['layer_id'] + " ";
 										envdata_insert_sql += "(latitude, longitude, property_id, property_name, property_value) ";
 										envdata_insert_sql += " VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING";
-										pg_n_client.querySync(envdata_insert_sql, [db_record[0],db_record[1],db_record[2],db_record[3],db_record[4]]);
+										await client.query(envdata_insert_sql, [db_record[0],db_record[1],db_record[2],db_record[3],db_record[4]]);
 										
 									}
 								}
@@ -608,12 +634,14 @@ var ctapi_wss = {
 					wss.send('environmental_data_csv_line::' + csv_line);
 				}
 			}
-			pg_n_client.end();
+			//pg_n_client.end();
+			// try { client.release(); } catch (err) { console.log(err) }
 		}
 		catch(err) {
 			console.log(err);
+			// try { client.release(); } catch (err) { console.log(err) }
 		}		
-
+		
 	},
 
 	//API function will retrieve embedded geoserver data for specific tree (this will produce multiple lines per data property)
@@ -624,8 +652,8 @@ var ctapi_wss = {
 		+ (parseFloat(tree_basic_data_object.tree_longitude) + 0.000000001);
 		var gen_url = gis_url + "/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetFeatureInfo&FORMAT=image%2Fpng&TRANSPARENT=true&QUERY_LAYERS=" + data_property_object.layer_name + "&LAYERS=" + data_property_object.layer_name + "&INFO_FORMAT=application%2Fjson&I=128&J=128&WIDTH=256&HEIGHT=256&CRS=EPSG:4326&STYLES=&BBOX=" + bbox;
 		console.log(gen_url);
-		var output = "";
-		await sleep(150);
+		var output = "error";
+		// await sleep(500);
 		await (async () => {
 			try {
 			  const response = await axios_instance.get(gen_url);
@@ -640,7 +668,8 @@ var ctapi_wss = {
 			  //console.log(error.response.body);
 			  output = "error";
 			}
-		  })();  
+		})();
+		//});  
 		return output;
 	},
 
@@ -1193,6 +1222,7 @@ function sleep(ms) {
 
 //Start up pg_pool which is used by Query Streams
 const conf = require('./config.js');
+const { exit } = require('process');
 var pg_pool = new pg.Pool(conf.conf);
 
 //Begin listening for connections and messages

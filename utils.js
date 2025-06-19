@@ -627,7 +627,7 @@ async function download_treesnap_image(tree_data, image_category, icimages_index
 	else {
 		file_ext = '.unsupported'
 	}
-	const destination = images_directory + '/'  + tree_data['id'] + '_' + image_category.toLowerCase().replaceAll(" ", "_") + '_' + (icimages_index + 1) + file_ext;
+	const destination = images_directory + '/'  + tree_data['mobile_id'] + '_' + image_category.toLowerCase().replaceAll(" ", "_") + '_' + (icimages_index + 1) + file_ext;
 
 	const file = fs.createWriteStream(destination);
 

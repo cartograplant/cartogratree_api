@@ -52,6 +52,10 @@ module.exports = async function(app, global) {
 	app.post("/cartogratree/api/v2/genotypes/by_study_ids", tree_controller.genotypes_overlapping_by_study_ids);
 	app.post("/cartogratree/api/v2/genotypes/markers_by_study_ids", tree_controller.genotypes_overlapping_markers_by_study_ids);
 	app.post("/cartogratree/api/v2/genotypes/snps_get_tree_ids_by_analysis_id", tree_controller.genotypes_snps_get_tree_ids_by_analysis_id);
+	app.post("/cartogratree/api/v2/genotypes/gt_check/run", tree_controller.genotypes_gt_check_run)
+	app.post("/cartogratree/api/v2/genotypes/gt_check/check_completion_json", tree_controller.genotypes_gt_check_check_completion_json)
+	app.post("/cartogratree/api/v2/genotypes/merge_vcfs/run", tree_controller.genotypes_merge_vcfs_run)
+	app.post("/cartogratree/api/v2/genotypes/merge_vcfs/check_completion_json", tree_controller.genotypes_merge_vcfs_check_completion_json)
 	app.post("/cartogratree/api/v2/manage/study_context/run", tree_controller.manage_study_context_run)
 	app.post("/cartogratree/api/v2/manage/study_context/check_completion_json", tree_controller.manage_study_context_check_completion_json)
 	app.post("/cartogratree/api/v2/genotypes/snp_vcf_filtering", tree_controller.genotypes_snp_vcf_filtering);
@@ -67,6 +71,8 @@ module.exports = async function(app, global) {
 
 	app.get("/cartogratree/api/v2/gwas/get_ui_json", tree_controller.gwas_get_ui_json);
 	app.post("/cartogratree/api/v2/gwas/step_execution", tree_controller.gwas_step_execution);
+	app.post("/cartogratree/api/v2/gwas/check_completion_json", tree_controller.gwas_check_completion_json);
+	app.get("/cartogratree/api/v2/gwas/nextflow_visualization", tree_controller.gwas_nextflow_visualization);
 
 
 	app.get("/cartogratree/api/v2/fields/trees", tree_controller.trees_get_fields);
