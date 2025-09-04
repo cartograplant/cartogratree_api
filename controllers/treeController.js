@@ -27,7 +27,8 @@ const { fork } = require('child_process');
 const retus = require("retus");
 const { parse } = require("node-html-parser");
 //var pgsync = require('pg-sync');
-const cache_time_24 = 72*60*60*1000;
+const cache_time_72 = 72*60*60*1000;
+const cache_time_24 = 24*60*60*1000;
 const JSONdb = require('simple-json-db');
 var db_storage = new JSONdb(__dirname + '/../storage.json', {asyncWrite: true, syncOnWrite: true});
 const treeController_functions = require('./treeController_functions');
@@ -3840,9 +3841,15 @@ exports.genotypes_variant_filtering_panel_filter_by_genotypes_rules_json = funct
 		var directory = '/isg/treegenes/cartograplant_analysis/' + analysis_id + '/variant-filtering-pipeline/filter-by-genotypes';	
 		
 		var vcf_location_parts = vcf_location.split('/');
+
 		var vcf_filename = vcf_location_parts[vcf_location_parts.length - 1];
+		
 		// var vcf_filename_without_ext = vcf_filename.replace('.vcf', '');
-		var vcf_filename_without_ext = vcf_filename.split('.').slice(0, -1).join('.');
+		var vcf_filename_without_ext = "";
+		if (vcf_filename.includes('.vcf.gz')) {
+			vcf_filename_without_ext = vcf_filename.replace('.gz', '');
+		}
+		//var vcf_filename_without_ext = vcf_filename.split('.').slice(0, -1).join('.');
 		console.log('vcf_filename_without_ext', vcf_filename_without_ext);
 		results['vcf_filename_without_ext'] = vcf_filename_without_ext;
 		results['study_accession'] = study_accession;
@@ -3867,15 +3874,16 @@ exports.genotypes_variant_filtering_panel_get_statistics = function (req, res, n
 		var variable_name = req.body.variable_name;
 		console.log('variable_name', variable_name);
 		var study_accession = req.body.study_accession;
+		var vcf_filename_without_ext = req.body.vcf_filename_without_ext;
 		var workspace_dir = '/isg/treegenes/cartograplant_analysis_workspaces/' + user_id + '/' + workspace_name;
-		var file_location = workspace_dir + '/bcftools/' + variable_name + '.txt';
+		var file_location = workspace_dir + '/bcftools/' + vcf_filename_without_ext + '_' + variable_name + '.txt';
 		var file_data = undefined;
 		if (fs.existsSync(file_location)) {
 			console.log('File found: ' + file_location);
 			file_data = fs.readFileSync(file_location);
 		}
 		else {
-			console.log('File found: ' + file_location);
+			console.log('File not found: ' + file_location);
 			file_location = workspace_dir + '/bcftools/FORMAT_' + variable_name + '.txt';
 			file_data = fs.readFileSync(file_location);
 		}
@@ -3968,7 +3976,7 @@ exports.genotypes_gt_check_run = function(req, res, next) {
 		// Version 1 used --input 'vcf_location'
 		// cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -r main -profile treegenes --outdir \'' + workspace_dir + '\' --input \'' + vcf_location + '\' --panel \'filter-by-genotypes\';';
 		// Version 2 uses --input structured_json.json
-		cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -r dev -profile treegenes --panel \'gt-check\' --input \'' + payload_json_location + '\' --outdir \'' + workspace_dir + '\';';
+		cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -r main -profile treegenes --panel \'gt-check\' --input \'' + payload_json_location + '\' --outdir \'' + workspace_dir + '\';';
 		console.log('cmd', cmd);
 		var results = {
 			status: 'failed',
@@ -4083,7 +4091,7 @@ exports.genotypes_merge_vcfs_run = function(req, res, next) {
 		// Version 1 used --input 'vcf_location'
 		// cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -r main -profile treegenes --outdir \'' + workspace_dir + '\' --input \'' + vcf_location + '\' --panel \'filter-by-genotypes\';';
 		// Version 2 uses --input structured_json.json
-		cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -r dev -profile treegenes --panel \'vcf-merge\' --input \'' + payload_json_location + '\' --outdir \'' + workspace_dir + '\';';
+		cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -r main -profile treegenes --panel \'vcf-merge\' --input \'' + payload_json_location + '\' --outdir \'' + workspace_dir + '\';';
 		console.log('cmd', cmd);
 		var results = {
 			status: 'failed',
@@ -4200,7 +4208,7 @@ exports.manage_study_context_run = function(req, res, next) {
 		// Version 1 used --input 'vcf_location'
 		// cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -r main -profile treegenes --outdir \'' + workspace_dir + '\' --input \'' + vcf_location + '\' --panel \'filter-by-genotypes\';';
 		// Version 2 uses --input structured_json.json
-		cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -r dev -profile treegenes --panel \'study-context\' --input \'' + payload_json_location + '\' --outdir \'' + workspace_dir + '\';';
+		cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -r main -profile treegenes --panel \'study-context\' --input \'' + payload_json_location + '\' --outdir \'' + workspace_dir + '\';';
 		console.log('cmd', cmd);
 		var results = {
 			status: 'failed',
@@ -4302,7 +4310,7 @@ exports.genotypes_variant_filtering_panel_filter_by_genotypes = function(req, re
 		// Version 1 used --input 'vcf_location'
 		// cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -r main -profile treegenes --outdir \'' + workspace_dir + '\' --input \'' + vcf_location + '\' --panel \'filter-by-genotypes\';';
 		// Version 2 uses --input structured_json.json
-		cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -r dev -profile treegenes --outdir \'' + workspace_dir + '\' --input \'' + structured_json_location + '\' --panel \'filter-by-genotypes\';';
+		cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -r main -profile treegenes --outdir \'' + workspace_dir + '\' --input \'' + structured_json_location + '\' --panel \'filter-by-genotypes\';';
 		console.log('cmd', cmd);
 		var results = {
 			status: 'failed',
@@ -7164,7 +7172,7 @@ exports.trees_list_qbuilder = function(req, res, next) {
 				console.log(err);
 			}
 			console.log("PASS_HASH: " + pass_hash);
-			query("SELECT u.name as name, r.name as role FROM public.users u INNER JOIN public.users_roles ur ON (u.uid = ur.uid) INNER JOIN public.role r ON (r.rid = ur.rid) WHERE pass LIKE $1", [pass_hash], function(err, rows_user_roles, result) {
+			query("SELECT u.name as name, r.name as role FROM public.users u INNER JOIN public.users_roles ur ON (u.uid = ur.uid) INNER JOIN public.role r ON (r.rid = ur.rid) WHERE pass LIKE $1", [pass_hash], async function(err, rows_user_roles, result) {
 				var private_source_ids = [];
 				var username = null;
 				for (var i = 0; i < rows_user_roles.length; i++) {
@@ -7176,7 +7184,7 @@ exports.trees_list_qbuilder = function(req, res, next) {
 					}
 				}
 				console.log(query_str);
-				query (query_str, [], function(err, rows, result) {
+				query (query_str, [], async function(err, rows, result) {
 					if (err) {
 						console.log(err);
 						res.status(400);
@@ -7196,6 +7204,12 @@ exports.trees_list_qbuilder = function(req, res, next) {
 					var lat_bottommost = 99999;
 					var center_lat = 0;
 					var center_lon = 0;
+
+
+					// Lookup this user's ownership of treesnap trees / observations
+					console.log('Username: ' + username);
+					var treesnap_user_owned_observation_ids = await utils.treesnap_email_observation_ids(username);
+
 					for (var i = 0; i < rows.length; i++) {
 						// Check if we should allow private data (latitude_precise, longitude_precise)
 						for (var j = 0; j < private_source_ids.length; j++) {
@@ -7208,14 +7222,26 @@ exports.trees_list_qbuilder = function(req, res, next) {
 							}
 						}
 
-						// Check if we should allow private data (latitude_precise, longitude_precise) for treesnap scientists
-						if (rows[0]['submitter_email'] != undefined || rows[0]['submitter_email'] != undefined) {
-							if (username == rows[0]['submitter_email']) {
+						var uniquename = rows[i]['uniquename'];
+						if (uniquename.includes('treesnap')) {
+							var uniquename_parts = uniquename.split('.');
+							var id = parseInt(uniquename_parts[1]);
+							if (treesnap_user_owned_observation_ids != undefined && treesnap_user_owned_observation_ids.includes(id)) {
 								console.log('Permission granted for treesnap scientist (detected): ' + rows[0].submitter_email);
 								rows[0].latitude = rows[0].latitude_precise;
 								rows[0].longitude = rows[0].longitude_precise;
 							}
 						}
+
+						// Deprecated on 7/21/2025 since Treesnap does not allow sharing emails due to privacy policy
+						// // Check if we should allow private data (latitude_precise, longitude_precise) for treesnap scientists
+						// if (rows[0]['submitter_email'] != undefined || rows[0]['submitter_email'] != undefined) {
+						// 	if (username == rows[0]['submitter_email']) {
+						// 		console.log('Permission granted for treesnap scientist (detected): ' + rows[0].submitter_email);
+						// 		rows[0].latitude = rows[0].latitude_precise;
+						// 		rows[0].longitude = rows[0].longitude_precise;
+						// 	}
+						// }
 
 						
 
@@ -7296,14 +7322,21 @@ exports.trees_list_qbuilder = function(req, res, next) {
 	});
 };
 
+
+
 /**
  * Returns all the trees that are currently present in the db
  * @param {object} request - Request object
  * @param {object} response - Response object
  * @param {function} next - Next middleware function in the application"s request-response cycle
  */
-exports.trees_list = function(req, res, next) {
- 	var cached_trees = ct_cache.get("trees_list");
+exports.trees_list = async function(req, res, next) {
+	var email = req.query.email;
+	if (email != undefined && email != null & email != "") {
+		email = "";
+	}
+
+ 	var cached_trees = ct_cache.get("trees_list_" + email);
 	if(cached_trees == null) {
 		// get the cpapi_token (user specific )
 		var pass_hash = '';
@@ -7313,6 +7346,20 @@ exports.trees_list = function(req, res, next) {
 		catch (err) {
 			console.log(err);
 		}
+
+		console.log('Looking up treesnap user owned observation ids');
+		var treesnap_user_owned_observation_ids = [];
+		try {
+			treesnap_user_owned_observation_ids = await utils.treesnap_email_observation_ids(email);
+			console.log(treesnap_user_owned_observation_ids);
+			// process.exit(0);
+		} catch (err) {
+			console.log('tree_list error:' + err);
+			// process.exit(1);
+		}
+		console.log(treesnap_user_owned_observation_ids);
+
+		
 
 		var query_str = "SELECT * FROM ct_trees WHERE source_id IN (0,1,2);";
 		query ("SELECT * FROM ct_trees WHERE source_id IN (0,1,2);", [], function(err, rows, result) {
@@ -7327,7 +7374,23 @@ exports.trees_list = function(req, res, next) {
 				var is_tree = new Boolean(rows[i]["is_tree"])
 				is_tree = is_tree.toString();
 				currTree["properties"] = {"id": rows[i]["uniquename"], "icon_type": rows[i]["icon_type"], "is_tree": is_tree, "sid": rows[i]["source_id"]};
-				currTree["geometry"] = {"type": "Point", "coordinates": [rows[i]["longitude"], rows[i]["latitude"]]};
+				if (rows[i]["uniquename"].includes("treesnap")) {
+					var uniquename_parts = rows[i]["uniquename"].split(".");
+					var id = parseInt(uniquename_parts[1]);
+					// Check if the user owns this observation
+					if (treesnap_user_owned_observation_ids != undefined && treesnap_user_owned_observation_ids.includes(id)) {
+						// If the user owns this observation, we can use the precise coordinates
+						currTree["geometry"] = {"type": "Point", "coordinates": [rows[i]["longitude_precise"], rows[i]["latitude_precise"]]};
+					}
+					else {
+						// If the user does not own this observation, we use the fuzzy coordinates
+						currTree["geometry"] = {"type": "Point", "coordinates": [rows[i]["longitude"], rows[i]["latitude"]]};
+					}
+				}
+				// If the tree is not from treesnap, we use the fuzzy coordinates
+				else {
+					currTree["geometry"] = {"type": "Point", "coordinates": [rows[i]["longitude"], rows[i]["latitude"]]};
+				}
 				treeFeatures.push(currTree);
 			}
 			ct_cache.put("trees_list", treeFeatures, cache_time_24);

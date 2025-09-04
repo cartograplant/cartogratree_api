@@ -1,4 +1,42 @@
 const config = require('./config');
+
+// Add winston logging with rotate file system
+const winston = require('winston');
+require('winston-daily-rotate-file');
+
+var fs = require('fs');
+// Create a logs directory
+if (fs.existsSync("logs") == false) {
+	fs.mkdirSync("logs", {recursive: true});
+}
+
+const transport = new winston.transports.DailyRotateFile({
+    filename: 'logs/%DATE%.log',
+    datePattern: 'YYYY-MM-DD', // Rotate daily
+	// 'YYYY-MM-DD-HH' // Rotate hourly
+    zippedArchive: true, // Zip old logs
+    maxSize: '20m', // Max size of 20MB
+    maxFiles: '14d' // Keep logs for 14 days
+});
+
+const logger = winston.createLogger({
+    level: 'info', // Log level
+    format: winston.format.combine(
+        winston.format.timestamp(),
+        winston.format.printf(info => `${info.timestamp} ${info.level}: ${info.message}`)
+    ),
+    transports: [
+        transport,
+        new winston.transports.Console() // Also log to console
+    ]
+});
+
+// Replace console.log with the logger
+console.log = (...args) => logger.info(...args); 
+
+// Now, console.log will write to both the file and the console
+console.log('This is a test log message.');
+
 var express = require("express");
 var global = {};
 var responseTime = require("response-time");
@@ -222,12 +260,12 @@ if (result.error) {
 console.log('FROM DOTENV:');
 console.log(result.parsed);
 
-var logger = function(req, res, next) {
+var logger_url = function(req, res, next) {
 	console.log(req.url);
 	next(); // Passing the request to the next handler in the stack.
 }
 
-app.use(logger);
+app.use(logger_url);
 app.use(cors());
 app.use(responseTime());
 app.use(bodyParser.json({

@@ -60,6 +60,8 @@
     "socket.io": "^4.5.4",
     "string-strip-html": "^13.4.5",
     "url": "^0.11.4",
+    "winston": "^3.17.0",
+    "winston-daily-rotate-file": "^5.0.0",
     "ws": "^7.2.1",
     "zlib": "^1.0.5"
   },

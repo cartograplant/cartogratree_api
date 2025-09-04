@@ -5,7 +5,9 @@ const fs = require('fs');
 const config = require('./config');
 const query = require("./query");
 var pg_native_client = require('pg-native');
-
+const treesnap_cache = require("memory-cache");
+var axios = require('axios');
+var https = require('https');
 
 const pool = new Pool({
 	host: process.env.DB_HOST,
@@ -27,6 +29,9 @@ var treesnap_location_manual = 0;
 var treesnap_location_all = 0;
 var treesnap_api_terms = [];
 var treesnap_otherlabel_values = [];
+
+
+
 
 function treesnap_add_get_terms_only(base_url) {
 	try {
@@ -126,6 +131,78 @@ function treesnap_add_get_terms_only(base_url) {
 	catch (err) {
 		console.log(err);
 	}
+}
+
+async function treesnap_email_observation_ids(email) {
+
+
+
+	const axios_instance = axios.create({
+		httpsAgent: new https.Agent({  
+		  rejectUnauthorized: false
+		})
+	});
+
+	var pass_hash = '';
+	try {
+		pass_hash = atob(req.query.cpapi_token);
+	}
+	catch (err) {
+		console.log(err);
+	}
+	query("SELECT u.name as name FROM public.users u  WHERE pass LIKE $1", [pass_hash], async function(err, rows, result) {
+		if (err) {
+			email = "";
+		}
+		else {
+		email = rows[0]['name'];
+		}
+
+		// Use for debugging
+		// email = 'florencecaldwell.dev@gmail.com';
+
+		try {
+			var ct_cache_key = "treesnap_email_observation_ids_" + email;
+			console.log(ct_cache_key);
+			var cache_data = null; //ct_cache seems to error out
+			cache_data = treesnap_cache.get(ct_cache_key);
+			
+			if (cache_data == null || cache_data == {} || cache_data == undefined) {
+				console.log('DO TREESNAP LOOKUP FOR OBSERVATION IDS');
+				var base_url = "https://treesnap.org/web-services/v1/observations/user/" + email;
+				console.log(base_url);
+				console.log(process.env.TREESNAP_BEARER);
+				var response = await axios_instance({
+					method: 'get',
+					url: base_url,
+					headers: {
+						"Authorization": "Bearer " + process.env.TREESNAP_BEARER,
+						"Accept": "application/json",
+						'Cache-Control': 'no-cache'
+					}
+				})
+				// console.log('treesnap_observations_by_user', response.data.data)
+				var email_keys = Object.keys(response.data.data);
+				var email_key = email_keys[0];
+				// console.log('Email key:' + email_key);
+				var observation_ids = response.data.data[email_key];
+				// console.log(observation_ids);
+				treesnap_cache.put(ct_cache_key, observation_ids, 24*60*60*1000);
+				return observation_ids;
+
+			}
+			else {
+				console.log("RETRIEVE FROM CACHE");
+				console.log(cache_data);
+				// Return cached results
+				return cache_data;
+			}
+		}
+		catch (err) {
+			console.log(err);
+			return [];
+		}
+	});
 }
 
 function treesnap_add_row_get_terms_only(tree_data, treesnap_terms_tree_current, hasNextPage) {
@@ -711,21 +788,22 @@ async function treesnap_add_row(tree_data) {
 		var latitude_precise = "";
 		var longitude_precise = "";
 		var is_private = 0;
-		var submitter_email = null;
-		if (tree_data['submitter_email'] != null && tree_data['submitter_email'] != undefined) {
-			is_private = 1;
-			submitter_email = tree_data['submitter_email'];
-		}
+		// 2025/07/20 Treesnap privacy policy does not allow giving out third party data
+		// var submitter_email = null;
+		// if (tree_data['submitter_email'] != null && tree_data['submitter_email'] != undefined) {
+		// 	is_private = 1;
+		// 	submitter_email = tree_data['submitter_email'];
+		// }
 		latitude = tree_data['fuzzy_latitude'];
 		longitude = tree_data['fuzzy_longitude'];
 		latitude_precise = tree_data['latitude'];
 		longitude_precise = tree_data['longitude'];
 		
-		
-		var submitter_email = tree_data['submitter_email'];
-		if (submitter_email == undefined) {
-			submitter_email = null;
-		}
+		// 2025/07/20 Treesnap privacy policy does not allow giving out third party data
+		// var submitter_email = tree_data['submitter_email'];
+		// if (submitter_email == undefined) {
+		// 	submitter_email = null;
+		// }
 
 
 		// console.log(category_lowercase);
@@ -756,8 +834,8 @@ async function treesnap_add_row(tree_data) {
 			}
 		}
 		else {
-			var results = await pool.query("INSERT INTO public.ct_trees_treesnap (uniquename, species, genus, family, subkingdom, latitude, longitude, source_id, icon_type, category, latitude_precise, longitude_precise, submitter_email) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) ON CONFLICT(uniquename) DO NOTHING",
-				["treesnap." + tree_data["id"], tree_data["genus"] + " " + tree_data["species"], tree_data["genus"], null, null, latitude, longitude, 1, 4, category, latitude_precise, longitude_precise, submitter_email]);
+			var results = await pool.query("INSERT INTO public.ct_trees_treesnap (uniquename, species, genus, family, subkingdom, latitude, longitude, source_id, icon_type, category, latitude_precise, longitude_precise) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT(uniquename) DO NOTHING",
+				["treesnap." + tree_data["id"], tree_data["genus"] + " " + tree_data["species"], tree_data["genus"], null, null, latitude, longitude, 1, 4, category, latitude_precise, longitude_precise]);
 		}
 		//console.log(tree_data['meta_data']);
 		// const client = await pool.connect()
@@ -1925,6 +2003,7 @@ module.exports = {
 	treesnap_add,
 	treesnap_add_get_terms_only,
 	treesnap_add_row_get_terms_only,
+	treesnap_email_observation_ids,
 	treesnap_terms_tree_total,
 	treesnap_terms_tree_current,
 	treesnap_terms,
