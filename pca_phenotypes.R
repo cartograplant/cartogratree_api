@@ -37,7 +37,7 @@ library(devtools)
 library(ggbiplot)
 
 #Plot the PCA
-jpeg(paste(args[1],'/',args[2],'_pca_phenotypes.jpeg', sep="")) 
+png(paste(args[1],'/',args[2],'_pca_phenotypes.png', sep="")) 
 ggbiplot(data_values_noNA.pca)
 dev.off();
 print(paste("analysis_id:",args[2], sep=""));
