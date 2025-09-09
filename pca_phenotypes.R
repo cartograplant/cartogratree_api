@@ -36,8 +36,18 @@ library(devtools)
 #install_github("vqv/ggbiplot")
 library(ggbiplot)
 
-#Plot the PCA
-png(paste(args[1],'/',args[2],'_pca_phenotypes.png', sep="")) 
-ggbiplot(data_values_noNA.pca)
-dev.off();
+library(ggplot2)
+
+# Create plot object
+plot_obj <- ggbiplot(data_values_noNA.pca)
+
+# Higher res PCA via ggsave than png() or jpeg()
+ggsave(
+  filename = paste(args[1], '/', args[2], '_pca_phenotypes.png', sep=""),
+  plot = plot_obj,
+  width = 12,
+  height = 10,
+  dpi = 1200   # super high resolution
+)
+
 print(paste("analysis_id:",args[2], sep=""));
