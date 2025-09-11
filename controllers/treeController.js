@@ -32,6 +32,7 @@ const cache_time_24 = 24*60*60*1000;
 const JSONdb = require('simple-json-db');
 var db_storage = new JSONdb(__dirname + '/../storage.json', {asyncWrite: true, syncOnWrite: true});
 const treeController_functions = require('./treeController_functions');
+const { dir } = require('console');
 exports.db_storage = db_storage;
 
 require("tls").DEFAULT_ECDH_CURVE = "auto";
@@ -1808,14 +1809,14 @@ exports.phenotypes_pca = async function(req, res, next) {
 		ls.on('close', (code) => {
 			try {
 				var fs = require('fs');
-				var data = fs.readFileSync(__dirname + '/../store/' + analysis_id + '_pca_phenotypes.jpeg');
+				var data = fs.readFileSync(__dirname + '/../store/' + analysis_id + '_pca_phenotypes.png');
 				var data_base64 = Buffer.from(data).toString('base64');
 
 				results['data_base64'] = data_base64;
 				results['updated'] = true;
 
 				exec("rm -f " + __dirname + '/../store/' + analysis_id + '_pca_phenotypes.csv');
-				exec("rm -f " + __dirname + '/../store/' + analysis_id + '_pca_phenotypes.jpeg');
+				exec("rm -f " + __dirname + '/../store/' + analysis_id + '_pca_phenotypes.png');
 			}
 			catch (err_pca_gen) {
 				console.log(err_pca_gen);
@@ -2834,10 +2835,10 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
  * @param {function} next - Next middleware function in the application"s request-response cycle   
  */ 
  exports.analysis_update_analysis_name = async function(req, res, next) {
+	var results = {
+		updated: false
+	};
 	try {
-		var results = {
-			updated: false
-		};
 
 		// Let us use query synchronized for procedural querying
 		// var pg_n_client = new pg_native_client();
@@ -2856,12 +2857,20 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 
 		var analysis_id = req.query.analysis_id;
 		var analysis_name = req.query.analysis_name;
+		console.log(req.query);
 
 		// Find the user_id of this user, using the username
-		var query_str = "UPDATE cartogratree_analysis_index SET analysis_name = $1 WHERE analysis_id = $2";
-		var qres = await client.querySync(query_str, [analysis_name, analysis_id]);
-		var rows = qres.rows;
+		var query_str = "UPDATE public.cartogratree_analysis_index SET analysis_name = $1 WHERE analysis_id = $2";
+		var qres = await client.query(query_str, [analysis_name, analysis_id]);
+
+		//var query_str = "UPDATE public.cartogratree_analysis_index SET analysis_name = '" + analysis_name + "' WHERE analysis_id = " + analysis_id + ";";
+		//console.log(query_str);
+		//await client.query(query_str);
+
+
+		// var rows = qres.rows;
 		results['updated'] = true;
+		console.log('Updated: true');
 
 		// NOTE: ALWAYS REMEMBER TO CLOSE THE pg_n_client connection at the end!
 		//pg_n_client.end();
@@ -3616,7 +3625,7 @@ exports.gwas_step_execution = function(req, res, next) {
 		results['status'] = 'success';
 		// results['study_accession'] = study_accession;
 		results['analysis_id'] = analysis_id;
-		res.status(200).send(JSON.stringify(results)); // will still run in the background
+		
 		var child = exec(cmd, function(error, stdout, stderr) {
 			if(error) {
 				console.log(error);
@@ -3652,9 +3661,59 @@ exports.gwas_step_execution = function(req, res, next) {
 
 			
 		});
+		results['pid'] = child['pid'];
+		res.status(200).send(JSON.stringify(results)); // will still run in the background
 	}
 	catch (err) {
 		console.log(err);
+	}
+}
+
+exports.gwas_step_stop_execution = function(req, res, next) {
+	try {
+		console.log('Stopping gwas step execution');
+		var pid = req.body.pid;
+		console.log('pid', pid);
+		if (pid) {
+			const exec = require('child_process').exec;
+			var cmd = "kill -9 " + pid;
+			console.log('cmd', cmd);
+			var results = {
+				status: 'failed'
+			};
+			var child = exec(cmd, function(error, stdout, stderr) {
+				if(error) {
+					console.log(error);
+					results['status'] = 'failed';
+					results['error'] = true;
+					res.send(JSON.stringify(results));
+					return;
+				}
+				results['status'] = 'success';
+				console.log('stderr', stderr);
+				console.log('stdout', stdout);
+				res.send(JSON.stringify(results));
+				return;
+			});
+		}
+		else {
+			console.log('No pid provided');
+			var results = {
+				status: 'failed',
+				error: 'No pid provided'
+			};
+			res.send(JSON.stringify(results));
+			return;
+		}
+	}
+	catch (err) {
+		console.log(err);
+		var results = {
+			status: 'failed',
+			error: err.message
+		};
+		res.send(JSON.stringify(results));
+		return;
 	}
 }
 
@@ -3855,7 +3914,14 @@ exports.genotypes_variant_filtering_panel_filter_by_genotypes_rules_json = funct
 		results['study_accession'] = study_accession;
 		results['analysis_id'] = analysis_id;
 		
-		var json_raw = fs.readFileSync(directory + '/' + vcf_filename_without_ext + '_rule_options.json');
+		var rule_options_location = "";
+		if (fs.existsSync(directory + '/' + vcf_filename_without_ext + '_rule_options.json')) {
+			rule_options_location = directory + '/' + vcf_filename_without_ext + '_rule_options.json'
+		}
+		else {
+			rule_options_location = directory + '/' + vcf_filename_without_ext + '.gz_rule_options.json';
+		}
+		var json_raw = fs.readFileSync(rule_options_location);
 		var json_object = JSON.parse(json_raw);
 		results['rules_json'] = json_object;
 		results['status'] = true;
@@ -3866,15 +3932,70 @@ exports.genotypes_variant_filtering_panel_filter_by_genotypes_rules_json = funct
 	res.send(JSON.stringify(results));
 }
 
+exports.genotypes_variant_filtering_panel_filter_by_genotypes_completion_json = function(req, res, next) {
+	var results = {
+		success: 'false'
+	};
+	try {
+		var analysis_id = req.body.analysis_id;
+		var study_accession = req.body.study_accession;
+		var vcf_location = req.body.vcf_location;
+		var directory = '/isg/treegenes/cartograplant_analysis/' + analysis_id + '/variant-filtering-pipeline/filter-by-genotypes';	
+
+		var json_raw = fs.readFileSync(directory + '/completion_message.json');
+		var json_object = JSON.parse(json_raw);
+		json_object['ui_study_accession'] = study_accession;
+		results = json_object;
+		
+		// var vcf_location_parts = vcf_location.split('/');
+
+		// var vcf_filename = vcf_location_parts[vcf_location_parts.length - 1];
+		
+		// // var vcf_filename_without_ext = vcf_filename.replace('.vcf', '');
+		// var vcf_filename_without_ext = "";
+		// if (vcf_filename.includes('.vcf.gz')) {
+		// 	vcf_filename_without_ext = vcf_filename.replace('.gz', '');
+		// }
+		// //var vcf_filename_without_ext = vcf_filename.split('.').slice(0, -1).join('.');
+		// console.log('vcf_filename_without_ext', vcf_filename_without_ext);
+		// results['vcf_filename_without_ext'] = vcf_filename_without_ext;
+		// results['study_accession'] = study_accession;
+		// results['analysis_id'] = analysis_id;
+		
+		// var rule_options_location = "";
+		// if (fs.existsSync(directory + '/' + vcf_filename_without_ext + '_rule_options.json')) {
+		// 	rule_options_location = directory + '/' + vcf_filename_without_ext + '_rule_options.json'
+		// }
+		// else {
+		// 	rule_options_location = directory + '/' + vcf_filename_without_ext + '.gz_rule_options.json';
+		// }
+		// var json_raw = fs.readFileSync(rule_options_location);
+		// var json_object = JSON.parse(json_raw);
+		// results['rules_json'] = json_object;
+		// results['status'] = true;
+	}
+	catch (err) {
+		console.log(err);
+	}
+	res.send(JSON.stringify(results));
+}
+
 exports.genotypes_variant_filtering_panel_get_statistics = function (req, res, next) {
 	try {
 		console.log('It came here');
+		console.log(req.body);
 		var user_id = req.body.user_id;
 		var workspace_name = req.body.workspace_name;
 		var variable_name = req.body.variable_name;
 		console.log('variable_name', variable_name);
 		var study_accession = req.body.study_accession;
 		var vcf_filename_without_ext = req.body.vcf_filename_without_ext;
+		var ext = '.vcf.gz';
+		if (vcf_filename_without_ext.endsWith(ext)) {
+			// remove the last find of .vcf.gz
+			vcf_filename_without_ext = vcf_filename_without_ext.substring(0, vcf_filename_without_ext.length - (ext.length));
+		}
+		console.log('vcf_filename_without_ext', vcf_filename_without_ext);
 		var workspace_dir = '/isg/treegenes/cartograplant_analysis_workspaces/' + user_id + '/' + workspace_name;
 		var file_location = workspace_dir + '/bcftools/' + vcf_filename_without_ext + '_' + variable_name + '.txt';
 		var file_data = undefined;
@@ -3902,6 +4023,11 @@ exports.genotypes_variant_filtering_panel_get_statistics = function (req, res, n
 	}
 	catch (err) {
 		console.log(err);
+		var results = {
+			status: 'error',
+			response: err
+		}
+		res.send(JSON.stringify(results));
 	}
 }
 

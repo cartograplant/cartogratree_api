@@ -61,7 +61,8 @@ module.exports = async function(app, global) {
 	app.post("/cartogratree/api/v2/genotypes/snp_vcf_filtering", tree_controller.genotypes_snp_vcf_filtering);
 	app.post("/cartogratree/api/v2/genotypes/variant_filtering_panel_filter_by_genotypes", tree_controller.genotypes_variant_filtering_panel_filter_by_genotypes);
 	app.post("/cartogratree/api/v2/genotypes/variant_filtering_panel_get_statistics", tree_controller.genotypes_variant_filtering_panel_get_statistics);
-	app.post("/cartogratree/api/v2/genotypes/variant_filtering_panel_filter_by_genotypes_rules_json", tree_controller.genotypes_variant_filtering_panel_filter_by_genotypes_rules_json);
+	app.post("/cartogratree/api/v2/genotypes/variant_filtering_panel_filter_by_genotypes_rules_json", tree_controller.genotypes_variant_filtering_panel_filter_by_genotypes_rules_json); // DEPRECATED 9/8/2025
+	app.post("/cartogratree/api/v2/genotypes/variant_filtering_panel_filter_by_genotypes_completion_json", tree_controller.genotypes_variant_filtering_panel_filter_by_genotypes_completion_json); 
 	app.post("/cartogratree/api/v2/genotypes/variant_filtering_panel_filter_and_imputation", tree_controller.genotypes_variant_filtering_panel_filter_and_imputation);
 	// app.post("/cartogratree/api/v2/genotypes/variant_filtering_panel_filter_by_genotypes_rule_options", tree_controller.genotypes_variant_filtering_panel_filter_by_genotypes_rule_options);
 
@@ -71,6 +72,7 @@ module.exports = async function(app, global) {
 
 	app.get("/cartogratree/api/v2/gwas/get_ui_json", tree_controller.gwas_get_ui_json);
 	app.post("/cartogratree/api/v2/gwas/step_execution", tree_controller.gwas_step_execution);
+	app.post("/cartogratree/api/v2/gwas/step_stop_execution", tree_controller.gwas_step_stop_execution);
 	app.post("/cartogratree/api/v2/gwas/check_completion_json", tree_controller.gwas_check_completion_json);
 	app.get("/cartogratree/api/v2/gwas/nextflow_visualization", tree_controller.gwas_nextflow_visualization);
 
