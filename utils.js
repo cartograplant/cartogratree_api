@@ -1318,8 +1318,36 @@ async function treesnap_add_row(tree_data) {
 						if(value != "I'm not sure" && value != "Unknown" && value != "Not sure" && phenotype_name != "ashSpecies" && phenotype_name != "comment" && phenotype_name != "hybridTraits" && phenotype_name != "hybridAttributes" && phenotype_name != "otherLabel") {
 							// console.log(phenotype_name + ',' + value + ',' + new_units);
 							await pool.query("INSERT INTO public.ct_trees_phenotypes_treesnap " + 
-								"(uniquename,                                                     tree_acc,               name,     phenotype_name,mapped_name,value,  units,  observable_name,  observable_accession, structure_name, structure_accession,confidence,cvterm_1_name,additional_term_accession) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT(uniquename) DO NOTHING",
-								["treesnap." + tree_data["id"] + "." + phenotype_name, "treesnap." + tree_data["id"],phenotype_name,phenotype_name,mapped_name,value,new_units, structure,        structure_accession,       structure, structure_accession,confidence,additional_term,additional_term_accession]);
+								`(uniquename,
+								tree_acc,
+								name,
+								phenotype_name,
+								mapped_name,
+								value,
+								units,
+								observable_name,
+								observable_accession,
+								structure_name,
+								structure_accession,
+								confidence,
+								cvterm_1_name,
+								additional_term_accession) 
+								VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT(uniquename) DO NOTHING`,
+								["treesnap." + tree_data["id"] + "." + phenotype_name, 
+								"treesnap." + tree_data["id"],
+								phenotype_name,
+								phenotype_name,
+								mapped_name,
+								value,
+								new_units,
+								attribute,
+								attribute_accession,
+								structure,
+								structure_accession,
+								confidence,
+								additional_term,
+								additional_term_accession
+							]);
 						}
 					}
 				}

@@ -1748,7 +1748,7 @@ exports.phenotypes_pca = async function(req, res, next) {
 	function generate_pca() {
 		const exec = require('child_process').exec;
 		// code = execSync('node -v');
-		var cmd = "Rscript " + __dirname + "/../pca_phenotypes.R " + __dirname + "/../store/ " + analysis_id;
+		var cmd = "Rscript " + __dirname + "/../pca_phenotypes.R " + __dirname + "/../store/" + analysis_id;
 		console.log('cmd', cmd);
 		console.log('it came here 10');
 		// var child = exec(cmd, function(error, stdout, stderr) {
@@ -1799,11 +1799,11 @@ exports.phenotypes_pca = async function(req, res, next) {
 		const ls = spawn('Rscript', [__dirname + "/../pca_phenotypes.R", __dirname + "/../store/",analysis_id]);
 
 		ls.stdout.on('data', (data) => {
-		  // console.log(`stdout: ${data}`);
+		  console.log(`stdout: ${data}`);
 		});
 		
 		ls.stderr.on('data', (data) => {
-		  // console.error(`stderr: ${data}`);
+		  console.error(`stderr: ${data}`);
 		});
 		
 		ls.on('close', (code) => {
@@ -1815,7 +1815,7 @@ exports.phenotypes_pca = async function(req, res, next) {
 				results['data_base64'] = data_base64;
 				results['updated'] = true;
 
-				exec("rm -f " + __dirname + '/../store/' + analysis_id + '_pca_phenotypes.csv');
+				 //exec("rm -f " + __dirname + '/../store/' + analysis_id + '_pca_phenotypes.csv');
 				exec("rm -f " + __dirname + '/../store/' + analysis_id + '_pca_phenotypes.png');
 			}
 			catch (err_pca_gen) {
@@ -3831,6 +3831,7 @@ exports.genotypes_variant_filtering_panel_filter_and_imputation = function(req, 
 		var analysis_id = req.body.analysis_id;
 		var study_accession = req.body.study_accession;
 		var filter  = req.body.filter;
+		var input_payload = JSON.parse(req.body.payload);
 		var directory = '/isg/treegenes/cartograplant_analysis/' + analysis_id + '/' + study_accession + '/variant-filtering-pipeline/filter-and-imputation';
 		fs.mkdirSync(directory, { recursive: true });
 		try {
@@ -3840,7 +3841,13 @@ exports.genotypes_variant_filtering_panel_filter_and_imputation = function(req, 
 		}
 		const exec = require('child_process').exec;
 		var cmd = "cd " + directory + '; ';
-		cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -hub gitlab -r main -profile treegenes --outdir \'' + workspace_dir + '\'  --input \'' + vcf_location + '\' --filter \'' + filter + '\' --panel \'filter-and-imputation\';';
+		// cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -hub gitlab -r main -profile treegenes --outdir \'' + workspace_dir + '\'  --input \'' + vcf_location + '\' --filter \'' + filter + '\' --panel \'filter-and-imputation\';';
+		
+
+		var input_payload_location = directory + '/input_payload.json';
+		fs.writeFileSync(input_payload_location, JSON.stringify(input_payload));
+		cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -hub gitlab -r main -profile treegenes --outdir \'' + workspace_dir + '\'  --input \'' + input_payload_location + '\' --filter \'' + filter + '\' --panel \'filter-and-imputation\';';
+		
 		console.log('cmd', cmd);
 		var results = {
 			status: 'failed'
@@ -3987,6 +3994,7 @@ exports.genotypes_variant_filtering_panel_get_statistics = function (req, res, n
 		var user_id = req.body.user_id;
 		var workspace_name = req.body.workspace_name;
 		var variable_name = req.body.variable_name;
+		var directive = req.body.directive;
 		console.log('variable_name', variable_name);
 		var study_accession = req.body.study_accession;
 		var vcf_filename_without_ext = req.body.vcf_filename_without_ext;
@@ -3997,15 +4005,40 @@ exports.genotypes_variant_filtering_panel_get_statistics = function (req, res, n
 		}
 		console.log('vcf_filename_without_ext', vcf_filename_without_ext);
 		var workspace_dir = '/isg/treegenes/cartograplant_analysis_workspaces/' + user_id + '/' + workspace_name;
-		var file_location = workspace_dir + '/bcftools/' + vcf_filename_without_ext + '_' + variable_name + '.txt';
+		var file_location = '';
+		if (directive == "INDV") {
+			file_location = workspace_dir + '/vcf_stats/' + vcf_filename_without_ext + '_' + directive + '_' + variable_name + '.txt';
+		}
+		else {
+			file_location = workspace_dir + '/vcf_stats/' + vcf_filename_without_ext + '_' + variable_name + '.txt';
+		}
 		var file_data = undefined;
-		if (fs.existsSync(file_location)) {
+		console.log("file location:" + file_location);
+		if (fs.existsSync(file_location) && directive != "INDV") {
 			console.log('File found: ' + file_location);
 			file_data = fs.readFileSync(file_location);
 		}
+		else if (fs.existsSync(file_location) && directive == "INDV") {
+			console.log("INDV FILE DETECTED");
+			// first column is sample names, second column is values
+			var file_data_tmp = fs.readFileSync(file_location);
+			file_data_tmp = file_data_tmp.toString();
+			// console.log(file_data_tmp);
+			var file_data_tmp_lines = file_data_tmp.split("\n");
+			console.log(file_data_tmp_lines);
+			file_data_tmp = ""; // empty the read data
+			file_data = "";
+			for (var i = 0; i < file_data_tmp_lines.length; i++) {
+				var line = file_data_tmp_lines[i];
+				var line_parts = line.split("\t");
+				console.log(line_parts);
+				var value = line_parts[1];
+				file_data += value + "\n";
+			}
+		}
 		else {
 			console.log('File not found: ' + file_location);
-			file_location = workspace_dir + '/bcftools/FORMAT_' + variable_name + '.txt';
+			file_location = workspace_dir + '/vcf_stats/FORMAT_' + variable_name + '.txt';
 			file_data = fs.readFileSync(file_location);
 		}
 		console.log('file_data_length', file_data.length);
@@ -4436,7 +4469,11 @@ exports.genotypes_variant_filtering_panel_filter_by_genotypes = function(req, re
 		// Version 1 used --input 'vcf_location'
 		// cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -r main -profile treegenes --outdir \'' + workspace_dir + '\' --input \'' + vcf_location + '\' --panel \'filter-by-genotypes\';';
 		// Version 2 uses --input structured_json.json
+		//cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -r main -profile treegenes --outdir \'' + workspace_dir + '\' --input \'' + structured_json_location + '\' --panel \'filter-by-genotypes\';';
+		
+		// Version 3: Use the main branch
 		cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -r main -profile treegenes --outdir \'' + workspace_dir + '\' --input \'' + structured_json_location + '\' --panel \'filter-by-genotypes\';';
+		
 		console.log('cmd', cmd);
 		var results = {
 			status: 'failed',
@@ -6552,6 +6589,7 @@ exports.tree_get_basic = function(req, res, next) {
 						return;
 					}
 					// console.log('Querying the ct_trees');
+					console.log(rows);
 					if(rows != undefined) {
 						// console.log('rows defined');
 						if(rows.length > 0) {
@@ -6622,7 +6660,8 @@ exports.tree_get_basic = function(req, res, next) {
 						}
 						else {
 							// console.log('rows less than or equal zero');
-							res.status(404).json("no tree");
+							// res.status(404).json("no tree");
+							res.status(200).json("no tree");
 							return;
 						}
 						/*
@@ -6698,6 +6737,98 @@ exports.phenotypes_tree_get = function(req, res, next) {
 			return;
 		}
 	});
+}
+
+exports.genotypes_from_vcf_tree_get = function(req, res, next) {
+
+	var tree_id = req.body.tree_id;
+	var original_tree_id = tree_id;
+	// var new_tree_id = tree_id;
+	if (tree_id != undefined) {
+		tree_id = tree_id.replaceAll(/TGDR\d+-/g, "");
+	}
+	console.log("Replacing TGDR<number>- part: " + tree_id);
+	var api_key = req.body.api_key;	
+	var vcf_location = req.body.vcf_location;
+	if (vcf_location != undefined) {
+		vcf_location = vcf_location.replaceAll("..","");
+	}
+	
+	
+	utils.valid_api_key(api_key, res, function() {
+		var key = tree_id + "_genotype_from_vcf";
+		var cached_val = ct_cache.get(key);
+		if (cached_val == null) {
+			// Initialize execSync
+			const { execSync } = require('child_process');
+			const { exec } = require('child_process');
+			// var command = "bcftools view -s '" + tree_id + "' '" + vcf_location + "' | grep -v \"^#\" | head -15";
+			var command = `
+				bcftools query -s ${tree_id} -f '%CHROM\t%POS\t%REF\t%ALT\t[%GT]\n' ${vcf_location} | \
+				awk 'BEGIN{OFS="\t"} {
+					marker=$1"_"$2
+					ref=$3
+					split($4,alts,",")
+					split($5,gt,"/|\\|")
+					
+					for(i=1; i<=2; i++) {
+						if(gt[i]=="0") allele[i]=ref
+						else if(gt[i]==".") allele[i]="."
+						else allele[i]=alts[gt[i]]
+					}
+					
+					if(allele[1]=="." || allele[2]==".") call="./."
+					else call=allele[1]"/"allele[2]
+					
+					print marker, call, "GT"
+				}' | head -n 15
+			`;
+			
+			
+			// var results = execSync(command, { encoding: 'utf8' });
+
+			exec(command, (err, stdout, stderr) => {
+				if (err) {
+				  console.error(`exec error: ${err}`);
+				  res.status(200).json([]);
+				  return;
+				}
+				console.log(`stdout: ${stdout}`);
+				console.error(`stderr: ${stderr}`);
+				var results = stdout;
+
+				var rows = [];
+				var lines = results.split("\n");
+				for (var i = 0; i < lines.length; i++) {
+					var line_data = lines[i].split("\t");
+					var tree_acc = tree_id;
+					var marker_name = line_data[0];
+					var description = line_data[1];
+					var marker_type = line_data[2];
+					rows.push({
+						tree_acc: original_tree_id,
+						marker_name: marker_name,
+						description: description,
+						marker_type: marker_type
+					});
+				}
+				// var rows = results;
+				console.log(rows);
+				ct_cache.put(key, rows, cache_time_24);
+				res.status(200).json(rows);
+				return;				
+			});
+
+			// console.log(results);
+
+		}
+		else {
+			console.log(cached_val);
+			res.status(200).json(cached_val);
+			return;
+		}
+	});
+	
 }
 
 /**
@@ -6946,15 +7077,16 @@ exports.publications_tree_get = function(req, res, next) {
 				})
 			});
 			try {
+				var headers = {
+					"Authorization": "Bearer " + process.env.TREESNAP_BEARER,
+					"Accept": "application/json",
+					'Cache-Control': 'no-cache'
+				}
 				axios_instance({
 					method: 'get',
 					url: "https://treesnap.org/web-services/v1/observation/" + tree_id,
 					timeout: 4000,
-					headers: {
-						"Authorization": "Bearer " + process.env.TREESNAP_BEARER,
-						"Accept": "application/json",
-						'Cache-Control': 'no-cache'
-					},
+					headers: headers,
 
 				}).then(function(response) {
 					try {
@@ -6978,7 +7110,7 @@ exports.publications_tree_get = function(req, res, next) {
 					}
 					return;
 				}).catch(function (err) {
-					res.status(500).json({error: err});
+					res.status(500).json({error: 'An error ocurred and was caught'});
 					console.log(err)
 					return;
 				});

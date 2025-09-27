@@ -35,6 +35,7 @@ module.exports = async function(app, global) {
 	app.get("/cartogratree/api/v2/tree/treesnap", tree_controller.tree_get_treesnap);
 	app.get("/cartogratree/api/v2/phenotypes", tree_controller.phenotypes_tree_get);
 	app.get("/cartogratree/api/v2/genotypes", tree_controller.genotypes_tree_get);
+	app.post("/cartogratree/api/v2/genotypes_from_vcf", tree_controller.genotypes_from_vcf_tree_get);
 	app.get("/cartogratree/api/v2/genotypes/count", tree_controller.genotypes_count_tree_get);	
 	app.get("/cartogratree/api/v2/markertypes", tree_controller.markertypes_tree_get);
 	app.get("/cartogratree/api/v2/publications", tree_controller.publications_tree_get);
