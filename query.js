@@ -6,6 +6,7 @@ const config = require('./config');
 const { Pool } = require('pg');
 const pg = new Pool(config.conf);
 
+
 module.exports = function(queryText, queryValues, callback) {
   pg.connect(function(db_error, client, release) {
     if(db_error) return callback(db_error);	// connection failure

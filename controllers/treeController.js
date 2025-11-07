@@ -7418,7 +7418,7 @@ exports.trees_list_qbuilder = function(req, res, next) {
 		// console.log(query_str);
 
 		// disable cached_trees
-		cached_trees = null;
+		// cached_trees = null;
 		if (cached_trees == null) {
 			console.log('Returning trees from direct Postgresql');
 			// get the cpapi_token (user specific )
@@ -7466,7 +7466,12 @@ exports.trees_list_qbuilder = function(req, res, next) {
 
 					// Lookup this user's ownership of treesnap trees / observations
 					console.log('Username: ' + username);
-					var treesnap_user_owned_observation_ids = await utils.treesnap_email_observation_ids(username);
+
+					var treesnap_user_owned_observation_ids = ct_cache.get('treesnap_email_observation_ids_' + username);
+					if (treesnap_user_owned_observation_ids == null) {
+						treesnap_user_owned_observation_ids = await utils.treesnap_email_observation_ids(username);
+						ct_cache.put('treesnap_email_observation_ids_' + username, treesnap_user_owned_observation_ids, cache_time_24);
+					}
 
 					for (var i = 0; i < rows.length; i++) {
 						// Check if we should allow private data (latitude_precise, longitude_precise)
@@ -7556,13 +7561,15 @@ exports.trees_list_qbuilder = function(req, res, next) {
 					tree_features["num_pubs"] = Object.keys(unq_pub).length;
 					tree_features["num_trees"] = tree_count;
 					
-					ct_cache.put(query_str, tree_features, cache_time_24);
+					// ct_cache.put(query_str, tree_features, cache_time_24);
 					
 					// We could put the compressed data into cache but for debug we won't do that
 					// Perform compression
 					tree_features = zlib_deflate_base64(JSON.stringify(tree_features));				
 
-					res.status(200).json({'zlib_deflated_base64': tree_features});
+					ct_cache.put(query_str, tree_features, cache_time_24);
+
+					res.status(200).json({'zlib_deflated_base64': tree_features, cached: false});
 					return;
 				});
 			});
@@ -7571,9 +7578,9 @@ exports.trees_list_qbuilder = function(req, res, next) {
 			console.log('Retrieving trees from cache');
 			// res.status(200).json(cached_trees);
 
-			// Perform compression
-			cached_trees = zlib_deflate_base64(JSON.stringify(cached_trees));
-			res.status(200).json({zlib_deflated_base64: cached_trees});
+			// Perform compression (no need to do this anymore)
+			// cached_trees = zlib_deflate_base64(JSON.stringify(cached_trees));
+			res.status(200).json({zlib_deflated_base64: cached_trees, cached: true});
 
 			return;
 		}
@@ -7651,21 +7658,23 @@ exports.trees_list = async function(req, res, next) {
 				}
 				treeFeatures.push(currTree);
 			}
-			ct_cache.put("trees_list", treeFeatures, cache_time_24);
+			// ct_cache.put("trees_list"  + email, treeFeatures, cache_time_24);
 
 			// We could put the compressed data into cache but for debug we won't do that
 			// Perform compression
 			treeFeatures = zlib_deflate_base64(JSON.stringify(treeFeatures));
 
-			res.status(200).json({zlib_deflated_base64: treeFeatures});
+			ct_cache.put("trees_list_"  + email, treeFeatures, cache_time_24);
+
+			res.status(200).json({zlib_deflated_base64: treeFeatures, cached: false});
 			return;
 		});
 
 	}
 	else {
 		// Perform compression
-		cached_trees = zlib_deflate_base64(JSON.stringify(cached_trees));
-		res.status(200).json({zlib_deflated_base64: cached_trees});
+		// cached_trees = zlib_deflate_base64(JSON.stringify(cached_trees));
+		res.status(200).json({zlib_deflated_base64: cached_trees, cached: true});
 		return;
 	}	
 };

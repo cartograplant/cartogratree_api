@@ -8,6 +8,7 @@ var pg_native_client = require('pg-native');
 const treesnap_cache = require("memory-cache");
 var axios = require('axios');
 var https = require('https');
+const isSea = require('is-sea');
 
 const pool = new Pool({
 	host: process.env.DB_HOST,
@@ -726,6 +727,8 @@ async function treesnap_add_row(tree_data) {
 	console.log('TreeSnap ID:' + tree_data["id"]);
 	// console.log(tree_data);
 	if (tree_data["location_accuracy"] != "-1" && tree_data["location_accuracy"] != "-2") {
+		
+
 		// if(tree_data["species"] == "Unknown" || tree_data["genus"] == "Unknown") {
 		// 10/1/2024 Temporarily replaced the Unknown checks to get Alaskan Willow data into the db
 		if(tree_data["species"] == "Dummyval") {
@@ -834,8 +837,41 @@ async function treesnap_add_row(tree_data) {
 			}
 		}
 		else {
-			var results = await pool.query("INSERT INTO public.ct_trees_treesnap (uniquename, species, genus, family, subkingdom, latitude, longitude, source_id, icon_type, category, latitude_precise, longitude_precise) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT(uniquename) DO NOTHING",
-				["treesnap." + tree_data["id"], tree_data["genus"] + " " + tree_data["species"], tree_data["genus"], null, null, latitude, longitude, 1, 4, category, latitude_precise, longitude_precise]);
+			if (tree_data["species"].includes("Unknown")) {
+				// Attempt to discover the species from the category data
+				var genus_species_regex = /\(([\w\s]*)\)/g;
+				var matches = category.match(genus_species_regex);
+				console.log(matches);
+				function capitalizeFirstLetter(str) {
+					if (!str || typeof str !== 'string') {
+					  return ''; // Handle empty or non-string inputs
+					}
+					return str.charAt(0).toUpperCase() + str.slice(1);
+				}
+				if (matches.length > 0) {
+					var match = matches[0].replaceAll('(','').replaceAll(')','').trim();;
+					var match_space_parts = match.split(' ');
+					// console.log(match_space_parts);
+					// await new Promise(resolve => setTimeout(resolve, 10000));
+					if (match_space_parts.length == 2) {
+						// Either a legit species or an unofficial species
+						var genus_tmp = capitalizeFirstLetter(match_space_parts[0]);
+						var species_tmp = capitalizeFirstLetter(match_space_parts[0] + ' ' + match_space_parts[1].toLowerCase());
+						//console.log('Genus tmp: ' + genus_tmp);
+						// console.log('Species tmp: ' + species_tmp);
+						// await new Promise(resolve => setTimeout(resolve, 10000));
+						tree_data["genus"] = genus_tmp;
+						tree_data["species"] = species_tmp;
+					}
+				}
+			}
+			// If species is not empty and does not contain Unknown, continue to import it
+			//if (tree_data["species"] != "" && tree_data["species"].includes("Unknown") == false) {
+			if (isSea(latitude_precise, longitude_precise) == false) {
+				var results = await pool.query("INSERT INTO public.ct_trees_treesnap (uniquename, species, genus, family, subkingdom, latitude, longitude, source_id, icon_type, category, latitude_precise, longitude_precise) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT(uniquename) DO NOTHING",
+					["treesnap." + tree_data["id"], tree_data["genus"] + " " + tree_data["species"], tree_data["genus"], null, null, latitude, longitude, 1, 4, category, latitude_precise, longitude_precise]);
+			}
+					// }
 		}
 		//console.log(tree_data['meta_data']);
 		// const client = await pool.connect()
@@ -1296,6 +1332,30 @@ async function treesnap_add_row(tree_data) {
 							additional_term_accession = '';
 							break;
 					}
+
+					// if (phenotype_name.includes('Species')) {
+					// 	var uniquename = "treesnap." + tree_data["id"];
+					// 	// Find (genus species) in value using regex
+					// 	var genus_species_regex = /\(([\w\s]*)\)/g;
+					// 	var matches = value.match(genus_species_regex);
+
+
+					// 	if (matches.length > 0) {
+					// 		console.log('species matches', matches);
+					// 		console.log('tree_data species', tree_data['species']);
+					// 		// throw new Error("Exiting function due to error");
+					// 		var species_tmp = matches[0];
+					// 		species_tmp = species_tmp.replaceAll('(', '').replaceAll(')', '').replaceAll('"', '');
+					// 		console.log('Cleaned up species: ', species_tmp);
+					// 		var species_tmp_parts = species_tmp.split(' ');
+					// 		console.log(species_tmp_parts);
+
+					// 		// Update ct_trees_treesnap row with the species
+					// 		var update_sql = "UPDATE public.ct_trees_treesnap SET (species, genus) VALUES ($1, $2) WHERE uniquename = $3";
+					// 		console.log(update_sql);
+					// 		await pool.query(update_sql, [species_tmp, species_tmp_parts[0], uniquename]);
+					// 	}
+					// }
 
 					// Cater for none phenotype data
 					var is_phenotype = true;

@@ -1,1 +1,1 @@
-pm2 start cartogratree_api.js --node-args="--max-old-space-size=8192"
+pm2 start cartogratree_api.js --node-args="--max-old-space-size=16384"
