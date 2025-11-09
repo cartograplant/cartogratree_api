@@ -153,6 +153,7 @@ module.exports = async function(app, global) {
 	app.get("/cartogratree/api/v2/trees/wfid_consolidate_metadata", tree_controller.wfid_consolidate_metadata);
 
 	app.get("/cartogratree/api/v2/trees/popstruct", tree_controller.popstruct_trees_list);
+	
 
 	app.get("/cartogratree/api/v2/stats/unq/species", tree_controller.total_unique_species);
 	app.get("/cartogratree/api/v2/stats/num/species", tree_controller.total_species);
@@ -191,6 +192,7 @@ module.exports = async function(app, global) {
 	app.post("/cartogratree/api/v2/popstruct/fast_structure", tree_controller.popstruct_fast_structure);
 	app.post("/cartogratree/api/v2/popstruct/dapc", tree_controller.popstruct_dapc);
 	app.get("/cartogratree/api/v2/popstruct/reload", tree_controller.popstruct_reload);
+	app.post("/cartogratree/api/v2/popstruct/study_plants_count", tree_controller.popstruct_study_plants_count);
 
 	app.post("/cartogratree/api/v2/analysis/insert_data", tree_controller.analysis_insert_data);
 	app.post("/cartogratree/api/v2/analysis/delete_data", tree_controller.analysis_delete_data);

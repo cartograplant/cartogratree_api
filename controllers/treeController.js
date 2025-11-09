@@ -6401,6 +6401,58 @@ function perform_bienv4_import() {
 	});
 }
 
+exports.popstruct_study_plants_count = function(req, res, next) {
+	console.log(req.body);
+	try {
+		var dbxref_id = req.body.dbxref_id;
+		var study_id = req.body.study_id;
+		console.log('Counting project stocks for dbxref_id:' + dbxref_id + ' study_id:' + study_id);
+		var query_str = 'select count(*) as c1 from chado.project_stock where project_id in (select project_id from chado.project_dbxref where dbxref_id = ' + dbxref_id + ');'
+		var cached_val = ct_cache.get(query_str);
+		if (cached_val == null) {
+			query (query_str, [], function (err, rows, result) {
+				if (err) {
+					console.log(err);
+					res.status(200).json({
+						"dbxref_id": dbxref_id,
+						"study_id": study_id, 
+						"count": -1, 
+						"status": "error", 
+						"cached": false
+					});
+					return;
+				}
+				var count = 0;
+				if (rows.length > 0) {
+					count = rows[0]['c1'];
+				}
+				ct_cache.put(query_str, count, cache_time_24);
+				res.status(200).json({
+					"dbxref_id": dbxref_id, 
+					"study_id": study_id,
+					"count": count, 
+					"status": "ok", 
+					"cached": false
+				});
+				return;
+			});
+		}	
+		else {
+			res.status(200).json({
+				"dbxref_id": dbxref_id, 
+				"study_id": study_id,
+				"count": cached_val, 
+				"status": "ok", 
+				"cached": true
+			});
+			return;
+		}
+	}
+	catch(err) {
+		console.log(err);
+	}
+}
+
 
 /**
  * Returns a json object with the species, genus and family fields for all trees that we have in our database
