@@ -9,6 +9,7 @@ const utils = require("./../utils");
 const query = require("./../query");
 const query_bienv4 = require("./../query_bienv4"); //to cater for BIENv4 data
 var pg_native_client = require('pg-native');
+const NextflowJobManager = require('./../includes/nextflow_job_manager.js').NextflowJobManager;
 const { Pool, Client } = require("pg"); 
 const pool = new Pool({
 	host: process.env.DB_HOST,
@@ -4400,6 +4401,38 @@ exports.manage_study_context_run = function(req, res, next) {
 			return;
 
 		});
+
+		try {
+			// // CODE IN PROGRESS
+			// var nfjm = new NextflowJobManager();
+			// nfjm.setJobUser('tg-nginx');
+			// // nfjm.newJob('study_context_' + analysis_id, 'local', null);
+			// nfjm.newJob('study_context_' + analysis_id, 'cluster', 'login.hpc.cam.uchc.edu');
+			// nfjm.setJobAction('run');
+			// nfjm.setJobRunDirectory(directory);
+			// nfjm.setJobOutputDirectory(workspace_dir);
+			// nfjm.setJobTempDirectory(workspace_dir + '/temp');
+			// nfjm.setJobSlurmHeaders();
+			// nfjm.setJobNextflowResourceName('TreeGenes/variant-filtering-pipeline');
+			// nfjm.addJobArgument('-r', 'main');
+			// nfjm.addJobArgument('-profile', 'treegenes');
+			// nfjm.addJobArgument('--panel', 'study-context');
+			// nfjm.addJobArgument('--input', "'" + payload_json_location + "'");
+			// nfjm.addJobArgument('--outdir', "'" + workspace_dir + "'");
+			// nfjm.submitJob();
+
+			// results['status'] = 'success';
+			// // results['study_accession'] = study_accession;
+			// results['analysis_id'] = analysis_id;
+			// console.log('stderr', stderr);
+			// console.log('stdout', stdout);
+
+			// res.status(200).send(JSON.stringify(results));
+			// return;
+		} catch (err) {
+			console.log(err);
+		}
+
 	}
 	catch (err) {
 		console.log(err);
