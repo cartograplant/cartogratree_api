@@ -4403,11 +4403,11 @@ exports.manage_study_context_run = function(req, res, next) {
 		});
 
 		try {
-			// // CODE IN PROGRESS
+			// // CODE IN PROGRESS - CONFIRMED WORKING FOR HPC CLUSTER
 			// var nfjm = new NextflowJobManager();
 			// nfjm.setJobUser('tg-nginx');
-			// // nfjm.newJob('study_context_' + analysis_id, 'local', null);
-			// nfjm.newJob('study_context_' + analysis_id, 'cluster', 'login.hpc.cam.uchc.edu');
+			// // nfjm.newJob('study_context_' + analysis_id, 'local', null); // For local
+			// nfjm.newJob('study_context_' + analysis_id, 'cluster', 'login.hpc.cam.uchc.edu'); // For cluster
 			// nfjm.setJobAction('run');
 			// nfjm.setJobRunDirectory(directory);
 			// nfjm.setJobOutputDirectory(workspace_dir);
@@ -4415,7 +4415,8 @@ exports.manage_study_context_run = function(req, res, next) {
 			// nfjm.setJobSlurmHeaders();
 			// nfjm.setJobNextflowResourceName('TreeGenes/variant-filtering-pipeline');
 			// nfjm.addJobArgument('-r', 'main');
-			// nfjm.addJobArgument('-profile', 'treegenes');
+			// // nfjm.addJobArgument('-profile', 'treegenes'); // For local
+			// nfjm.addJobArgument('-profile', 'xanadu'); // For cluster
 			// nfjm.addJobArgument('--panel', 'study-context');
 			// nfjm.addJobArgument('--input', "'" + payload_json_location + "'");
 			// nfjm.addJobArgument('--outdir', "'" + workspace_dir + "'");
