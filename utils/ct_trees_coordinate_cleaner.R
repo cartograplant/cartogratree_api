@@ -1,7 +1,7 @@
 install.packages(c("DBI", "RPostgres"), repos="https://cloud.r-project.org/")
+install.packages("CoordinateCleaner", repos="https://cloud.r-project.org/")
 library(DBI)
 library(RPostgres)
-install.packages("CoordinateCleaner", repos="https://cloud.r-project.org/")
 library(CoordinateCleaner)
 
 # Receive postgreSQL connection details from command line arguments that uses flags
