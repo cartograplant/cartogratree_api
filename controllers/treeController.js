@@ -2715,7 +2715,7 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
  * @param {object} response - Response object
  * @param {function} next - Next middleware function in the application"s request-response cycle   
  */ 
- exports.analysis_insert_markers_study_overlaps = async function(req, res, next) {
+ exports.analysis_insert_markers_study_overlaps_deprecated_12_10_25 = async function(req, res, next) {
 	try {
 		var results = {
 			updated: false
@@ -2814,6 +2814,129 @@ exports.analysis_insert_markers_study_none_overlaps = async function(req, res, n
 			// 	console.log('variable_data');
 			// }
 		}
+
+		// NOTE: ALWAYS REMEMBER TO CLOSE THE pg_n_client connection at the end!
+		// pg_n_client.end();
+		client.release();
+		res.send(JSON.stringify(results));
+
+	}
+	catch (err) {
+		res.send(JSON.stringify(results));
+		console.log(err);
+	}
+
+	// res.send(JSON.stringify(results));
+ }
+
+/**
+ * This function will perform query to check for overlapping markers
+ * between the studies specified and stores it in the analysis_data
+ * @param {object} request - Request object
+ * @param {object} response - Response object
+ * @param {function} next - Next middleware function in the application"s request-response cycle   
+ */ 
+exports.analysis_insert_markers_study_overlaps = async function(req, res, next) {
+	try {
+		var results = {
+			updated: false
+		};
+
+		// Let us use query synchronized for procedural querying
+		// var pg_n_client = new pg_native_client();
+
+		console.log('Connecting to database...');
+		//pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+		const client = await pool.connect();
+		//console.log(config.conf.host);
+		//console.log(config.conf.user);
+		//console.log(config.conf.password);
+		// pg_n_client.querySync("set datestyle='ISO';");
+		// pg_n_client.querySync("SET client_encoding TO 'UTF-8';");
+		// pg_n_client.querySync("SET bytea_output TO escape;");
+		// pg_n_client.querySync('SET SEARCH_PATH TO "public","chado"');
+		await client.query("set datestyle='ISO';");
+		await client.query("SET client_encoding TO 'UTF-8';");
+		await client.query("SET bytea_output TO escape;");
+		await client.query('SET SEARCH_PATH TO "public","chado"');
+
+
+		var analysis_id = req.body.analysis_id;
+		var study_ids_arr = JSON.parse(req.body.study_ids_arr);
+		var variable_name = "studies_snp_overlap_" + study_ids_arr.join("_");
+		
+		// Delete the row if this already exists (just in case)
+		var query_str = "DELETE FROM cartogratree_analysis_data WHERE variable_name = $1 AND analysis_id = $2";
+		console.log(query_str);
+		await client.query(query_str,[variable_name,analysis_id]);
+		console.log('DONE');
+
+
+		// Get the markers that overlap
+		var query_str = "select markers, cardinality(markers) from chado.test_studies_marker_overlap WHERE ";
+		for (var i=0; i<study_ids_arr.length; i++) {
+		  var study_id = study_ids_arr[i];
+		  study_id = study_id.replace('(', '');
+		  study_id = study_id.replace(')', '');
+		  if (i == 0) {
+			query_str += "'" + study_id + "' = ANY(accessions)";
+		  }
+		  else {
+			query_str += " AND '" + study_id + "' = ANY(accessions)";
+		  }
+		}
+		query_str += " order by cardinality desc limit 1";
+		console.log(query_str);
+		var qres = await client.query(query_str);
+
+		// Get the markers feature_ids that overlap
+		var query_str = "select marker_feature_ids, cardinality(marker_feature_ids) from chado.studies_marker_id_overlaps_test WHERE ";
+		for (var i=0; i<study_ids_arr.length; i++) {
+			var study_id = study_ids_arr[i];
+			study_id = study_id.replace('(', '');
+			study_id = study_id.replace(')', '');
+			if (i == 0) {
+			query_str += "'" + study_id + "' = ANY(study_accessions)";
+			}
+			else {
+			query_str += " AND '" + study_id + "' = ANY(study_accessions)";
+			}
+		}
+		query_str += " order by cardinality desc limit 1";
+		console.log(query_str);
+
+
+
+		// results['query_str'] = query_str;
+		// console.log(query_str);
+
+		// var rows = pg_n_client.querySync(query_str);
+		
+		var qres_feature_ids = await client.query(query_str);
+		console.log('DONE');
+		var rows = qres.rows;
+		var rows_feature_ids = qres_feature_ids.rows;
+		if(rows.length > 0) {
+			var markers = rows[0].markers;
+			// console.log(markers);
+			var query_str = "INSERT INTO cartogratree_analysis_data (analysis_id, variable_name, variable_data)";
+			query_str += " VALUES ($1,$2,$3)";
+			await client.query(query_str, [analysis_id,variable_name,markers]);
+			// results['studies'] = study_ids_arr;
+			// results['markers'] = markers;
+			results['marker_feature_ids'] = rows_feature_ids[0].marker_feature_ids;
+			results['updated'] = true;
+
+			// This code was used to verify that the data gets inserted into the database
+			// var query_str = "SELECT * FROM cartogratree_analysis_data WHERE analysis_id = $1 AND variable_name = $2";
+			// var rows2 = pg_n_client.querySync(query_str, [analysis_id,variable_name]);
+			// if(rows2.length > 0) {
+			// 	console.log(rows2[0].variable_data);
+			// 	console.log('variable_data');
+			// }
+		}
+
+		results['studies'] = study_ids_arr;
 
 		// NOTE: ALWAYS REMEMBER TO CLOSE THE pg_n_client connection at the end!
 		// pg_n_client.end();
@@ -4593,8 +4716,31 @@ exports.genotypes_variant_filtering_panel_filter_by_genotypes = function(req, re
  exports.genotypes_snps_by_study = function(req, res, next) {
 	try {
 		var study = req.body.study;
-		var query_str = "SELECT * FROM chado.markers_and_studies_names_remapped WHERE accession = $1";
-		query (query_str, [study], function (err, rows, result) {
+		var analysis_name = req.body.analysis_name;
+		// var query_str = "SELECT * FROM chado.markers_and_studies_names_remapped WHERE accession = $1";
+		// query (query_str, [study], function (err, rows, result) {
+		// 	if (err) {
+		// 		console.log(err);
+		// 		res.status(400);
+		// 		return;
+		// 	}
+
+		// 	if (rows != undefined) {
+		// 		if (rows.length > 0) {
+		// 			// Add count
+		// 			rows[0]['count'] = rows[0]['markers'].length;
+		// 			res.status(200).send(JSON.stringify(rows));
+		// 		}
+		// 		else {
+		// 			rows = [];
+		// 			res.status(200).send(JSON.stringify(rows));
+		// 		}
+		// 	}
+		// });
+
+
+		var query_str = "SELECT * FROM chado.markers_per_study_view WHERE study_accession = $1 AND analysis_name = $2";
+		query (query_str, [study, analysis_name], function (err, rows, result) {
 			if (err) {
 				console.log(err);
 				res.status(400);
@@ -4604,8 +4750,15 @@ exports.genotypes_variant_filtering_panel_filter_by_genotypes = function(req, re
 			if (rows != undefined) {
 				if (rows.length > 0) {
 					// Add count
-					rows[0]['count'] = rows[0]['markers'].length;
-					res.status(200).send(JSON.stringify(rows));
+					var rows_edited = [];
+					rows_edited = rows;
+					rows_edited[0]['markers'] = rows[0]['marker_positions'];
+					rows_edited[0]['accession'] = rows[0]['study_accession'];
+					delete rows_edited[0]['marker_positions'];
+					delete rows_edited[0]['study_accession'];
+					delete rows;
+					rows_edited[0]['count'] = rows_edited[0]['markers'].length;
+					res.status(200).send(JSON.stringify(rows_edited));
 				}
 				else {
 					rows = [];
