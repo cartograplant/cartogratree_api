@@ -21,3 +21,7 @@ plink/*
 vcftools/*
 # Allow
 !package.json
+.nextflow
+.nextflow/*
+work/*
+logs/*
