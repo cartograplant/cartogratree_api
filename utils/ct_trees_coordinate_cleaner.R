@@ -31,9 +31,9 @@ cat("Connected to database.\n")
 
 # Fetch data
 cat("Fetching data from ct_trees_all_view...\n")
-query <- "SELECT * FROM public.ct_trees_all_view"
+query <- "SELECT uniquename, study_accession, family, genus, species, longitude::double precision, latitude::double precision, source_id FROM public.ct_trees_all_view WHERE latitude IS NOT NULL AND longitude IS NOT NULL"
 if (!is.null(source_id)) {
-  query <- paste0(query, " WHERE source_id = ", source_id)
+  query <- paste0(query, " AND source_id = ", source_id)
 }
 data <- dbGetQuery(con, query)
 cat("Data fetched. Number of records: ", nrow(data), "\n")
