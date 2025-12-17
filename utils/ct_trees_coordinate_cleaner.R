@@ -31,6 +31,7 @@ cat("Connected to database.\n")
 
 # Fetch data
 cat("Fetching data from ct_trees_all_view...\n")
+# Limit the column names to only those needed for cleaning (mostly to reduce memory usage)
 query <- "SELECT uniquename, study_accession, family, genus, species, longitude::double precision, latitude::double precision, source_id FROM public.ct_trees_all_view WHERE latitude IS NOT NULL AND longitude IS NOT NULL"
 if (!is.null(source_id)) {
   query <- paste0(query, " AND source_id = ", source_id)
