@@ -4012,6 +4012,14 @@ exports.genotypes_variant_filtering_panel_filter_and_imputation = function(req, 
 			// var json_object = JSON.parse(json_raw);
 			// results['rules_json'] = json_object;
 
+			try {
+				var completion_json_data = JSON.parse(fs.readFileSync(directory + '/completion_message.json'));
+				results['completion_message'] = completion_json_data;
+			}
+			catch (err) {
+				console.log(err);
+			}
+
 			res.send(JSON.stringify(results))
 		});
 	}
