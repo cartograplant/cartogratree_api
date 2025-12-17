@@ -47,7 +47,7 @@ cleaned_data <- clean_coordinates(
   lat = "latitude",
   species = "species",
   tests = c(
-    "capitals", "centroids", "equal", "gbif", "institutions",
+    "capitals", "centroids", "equal", "gbif", "outliers", "institutions",
     "seas", "zeros"
   )
 )
