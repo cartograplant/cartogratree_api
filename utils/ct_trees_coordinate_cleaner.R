@@ -1,5 +1,5 @@
-install.packages(c("DBI", "RPostgres"), repos="https://cloud.r-project.org/")
-install.packages("CoordinateCleaner", repos="https://cloud.r-project.org/")
+# install.packages(c("DBI", "RPostgres"), repos="https://cloud.r-project.org/")
+# install.packages("CoordinateCleaner", repos="https://cloud.r-project.org/")
 library(DBI)
 library(RPostgres)
 library(CoordinateCleaner)
