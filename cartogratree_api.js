@@ -37,6 +37,10 @@ console.log = (...args) => logger.info(...args);
 // Now, console.log will write to both the file and the console
 console.log('This is a test log message.');
 
+const crypto = require('crypto');
+const ct_main_cache = require("memory-cache");
+const cache_time_14_days = 14*24*60*60*1000;
+
 var express = require("express");
 var global = {};
 var responseTime = require("response-time");
@@ -574,8 +578,19 @@ var ctapi_wss = {
 
 
 
-			var qres = await client.query("SELECT * FROM ct_trees WHERE uniquename = '" + tree_id + "' LIMIT 1;");
-			var rows = qres.rows;
+			var sql = "SELECT * FROM ct_trees WHERE uniquename = '" + tree_id + "' LIMIT 1;";
+
+			var cached_rows = ct_main_cache.get(sql);
+			var rows = [];
+			if(cached_rows != undefined || cached_rows != null) {
+				rows = cached_rows;
+			}
+			else {
+				var qres = await client.query(sql);
+				rows = qres.rows;
+				// add to cache
+				ct_main_cache.put(sql, rows, cache_time_14_days);
+			}
 			//console.log('Found ' + rows.length + ' tree with ID:' + tree_id);
 			if(rows.length > 0) {
 				// This is really just one tree
@@ -662,7 +677,6 @@ var ctapi_wss = {
 								var key_value = "NA";
 								csv_line += "," + key_value;
 							}							
-							
 						}
 						catch(err) {
 							console.log(err);
@@ -688,29 +702,49 @@ var ctapi_wss = {
 		+ tree_basic_data_object.tree_longitude + ',' 
 		+ (parseFloat(tree_basic_data_object.tree_latitude) + 0.0000000001) + ',' 
 		+ (parseFloat(tree_basic_data_object.tree_longitude) + 0.000000001);
-		var gen_url = gis_url + "/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetFeatureInfo&FORMAT=image%2Fpng&TRANSPARENT=true&QUERY_LAYERS=" + data_property_object.layer_name + "&LAYERS=" + data_property_object.layer_name + "&INFO_FORMAT=application%2Fjson&I=128&J=128&WIDTH=256&HEIGHT=256&CRS=EPSG:4326&STYLES=&BBOX=" + bbox;
-		console.log(gen_url);
+		var url_relative_location =  "/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetFeatureInfo&FORMAT=image%2Fpng&TRANSPARENT=true&QUERY_LAYERS=" + data_property_object.layer_name + "&LAYERS=" + data_property_object.layer_name + "&INFO_FORMAT=application%2Fjson&I=128&J=128&WIDTH=256&HEIGHT=256&CRS=EPSG:4326&STYLES=&BBOX=" + bbox;
+		// var hash = generateMD5Hash(url_relative_location);
+		var gen_url = gis_url + url_relative_location;
+		
+		// console.log(gen_url);
 		var output = "error";
 		// await sleep(500);
 		await (async () => {
 			try {
-			  const response = await axios_instance.get(gen_url);
-			  //console.log(response);
-			  //console.log(response.data.url);
-			  //console.log(response.data.explanation);
-			  //return response.body;
-			  output = JSON.stringify(response.data);
-			  console.log(output);
+
+				// Check cache first
+				console.log('Checking cache for URL location:', url_relative_location);
+				var cached_output = ct_main_cache.get(url_relative_location);
+				// var test_val = ct_main_cache.get('test');
+				// console.log('test_val:', test_val);
+				// ct_main_cache.put('test', 'test_value', cache_time_14_days);
+				// return;
+
+				// console.log('cached_output:', cached_output);
+				if(cached_output != undefined || cached_output != null) {
+					output = cached_output;
+				}
+				else {
+					const response = await axios_instance.get(gen_url);
+					//console.log(response);
+					//console.log(response.data.url);
+					//console.log(response.data.explanation);
+					//return response.body;
+					output = JSON.stringify(response.data);
+					// add to cache
+					ct_main_cache.put(url_relative_location, output, cache_time_14_days);
+				}
+			  	console.log(output);
 			} catch (error) {
-				console.log(error);
-			  //console.log(error.response.body);
-			  output = "error";
+				ct_main_cache.put(url_relative_location, 'error', cache_time_14_days);
+				console.log('ERROR: ' + error);
+				//console.log(error.response.body);
+				output = "error";
 			}
 		})();
 		//});  
 		return output;
 	},
-
 
 	//API function to get trees by source_id and stream it back to the browser
 	api_trees_by_source_id: function(wss, message) {
@@ -1258,9 +1292,24 @@ function sleep(ms) {
 	});
 } 
 
+function generateMD5Hash(inputString) {
+	// Create an MD5 hash object
+	const hash = crypto.createHash('md5');
+  
+	// Update the hash with the input string
+	// It's a good practice to specify the input encoding (e.g., 'utf8')
+	hash.update(inputString, 'utf8');
+  
+	// Generate the hash in hexadecimal format
+	const md5Hash = hash.digest('hex');
+  
+	return md5Hash;
+  }
+
 //Start up pg_pool which is used by Query Streams
 const conf = require('./config.js');
 const { exit } = require('process');
+const { url } = require('inspector');
 var pg_pool = new pg.Pool(conf.conf);
 
 //Begin listening for connections and messages

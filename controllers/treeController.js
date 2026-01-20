@@ -7790,7 +7790,14 @@ exports.trees_list_qbuilder = function(req, res, next) {
 						if (coords_count > most_common) {
 							most_common = coords_count;
 						}
-						tree_features["features"].push(curr_tree);
+
+						// Clean up trees that are known to be in the sea (eg MAMA data)
+						if ((rows[i]["longitude"] > -0.06 && rows[i]["longitude"] <= 0.06) && (rows[i]["latitude"] <= 0.06 && rows[i]["latitude"] >= -0.06)) {
+							// Do not include this tree
+						}
+						else {
+							tree_features["features"].push(curr_tree);
+						}
 						tree_count++;
 					}
 					if (most_common > 0) {
