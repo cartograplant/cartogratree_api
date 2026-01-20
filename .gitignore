@@ -25,3 +25,4 @@ vcftools/*
 .nextflow/*
 work/*
 logs/*
+utils/run_coordinate_cleaner_treesnap.sh
