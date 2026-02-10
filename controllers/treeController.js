@@ -3079,9 +3079,12 @@ exports.analysis_insert_markers_study_overlaps = async function(req, res, next) 
 		// pg_n_client.end();
 
 		client.release();
+		res.send(JSON.stringify(results));
+		return;
 	}
 	catch (err) {
 		console.log(err);
+		console.log(JSON.stringify(err));
 	}
 	res.send(JSON.stringify(results));
 
@@ -3714,6 +3717,7 @@ exports.gwas_step_execution = function(req, res, next) {
 	try {
 		console.log('post vars', req.body);
 		var user_id = req.body.user_id;
+		var analysis_id = req.body.analysis_id;
 		var workspace_name = req.body.workspace_name;
 		var workspace_dir = '/isg/treegenes/cartograplant_analysis_workspaces/' + user_id + '/' + workspace_name;
 		// var vcf_location = req.body.vcf_location;
@@ -3739,7 +3743,7 @@ exports.gwas_step_execution = function(req, res, next) {
 		}
 		const exec = require('child_process').exec;
 		var cmd = "cd " + directory + '; ';
-		cmd += 'nextflow run TreeGenes/gwas-pipeline -hub gitlab -r main -profile treegenes --outdir \'' + workspace_dir + '\' ' + flags_line + ' ;';
+		cmd += 'nextflow run TreeGenes/gwas-pipeline -hub gitlab -r main -profile treegenes --user_id ' + user_id +' --outdir \'' + workspace_dir + '\' ' + flags_line + ' ;';
 		console.log('cmd', cmd);
 		var results = {
 			status: 'failed'
@@ -3910,7 +3914,7 @@ exports.popstruct_nextflow_workflow = function(req, res, next) {
 		}
 		const exec = require('child_process').exec;
 		var cmd = "cd " + directory + '; ';
-		cmd += 'nextflow run TreeGenes/population-structure-pipeline -hub gitlab -r main -profile treegenes --outdir \'' + workspace_dir + '\'';
+		cmd += 'nextflow run TreeGenes/population-structure-pipeline -hub gitlab -r main -profile treegenes --user_id ' + user_id + ' --analysis_id ' + analysis_id + ' --outdir \'' + workspace_dir + '\'';
 		cmd += pcmd; // add the properties flags
 		console.log('cmd', cmd);
 		var results = {
@@ -3970,7 +3974,7 @@ exports.genotypes_variant_filtering_panel_filter_and_imputation = function(req, 
 
 		var input_payload_location = directory + '/input_payload.json';
 		fs.writeFileSync(input_payload_location, JSON.stringify(input_payload));
-		cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -hub gitlab -r main -profile treegenes --outdir \'' + workspace_dir + '\'  --input \'' + input_payload_location + '\' --filter \'' + filter + '\' --panel \'filter-and-imputation\';';
+		cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -hub gitlab -r main -profile treegenes --user_id ' + user_id +  ' --analysis_id ' + analysis_id + ' --outdir \'' + workspace_dir + '\'  --input \'' + input_payload_location + '\' --filter \'' + filter + '\' --panel \'filter-and-imputation\';';
 		
 		console.log('cmd', cmd);
 		var results = {
@@ -3989,10 +3993,12 @@ exports.genotypes_variant_filtering_panel_filter_and_imputation = function(req, 
 			results['status'] = 'success';
 			results['study_accession'] = study_accession;
 			results['analysis_id'] = analysis_id;
+			// results['cmd'] = cmd;
 			console.log('stderr', stderr);
 			console.log('stdout', stdout);
 
 			var cmd2 = "cd " + directory + "; RUN_NAME=$(nextflow log | awk -F'\t' 'NR > 1 {print $0}' | sort -r | awk -F'\t' 'NR==1 {print $3}'); nextflow log $RUN_NAME -f script > " + workspace_dir + '/current-runcmds_filter_and_imputation.txt';
+			results['cmd2'] = cmd2;
 			var child2 = exec(cmd2, function(error, stdout, stderr) {
 				console.log('stderr', stderr);
 				console.log('stdout', stdout);
@@ -4292,6 +4298,7 @@ exports.genotypes_gt_check_run = function(req, res, next) {
 			results['status'] = 'success';
 			// results['study_accession'] = study_accession;
 			results['analysis_id'] = analysis_id;
+			// results['cmd'] = cmd;
 			console.log('stderr', stderr);
 			console.log('stdout', stdout);
 
@@ -4407,6 +4414,7 @@ exports.genotypes_merge_vcfs_run = function(req, res, next) {
 			results['status'] = 'success';
 			// results['study_accession'] = study_accession;
 			results['analysis_id'] = analysis_id;
+			// results['cmd'] = cmd;
 			console.log('stderr', stderr);
 			console.log('stdout', stdout);
 
@@ -4524,6 +4532,7 @@ exports.manage_study_context_run = function(req, res, next) {
 			results['status'] = 'success';
 			// results['study_accession'] = study_accession;
 			results['analysis_id'] = analysis_id;
+			// results['cmd'] = cmd;
 			console.log('stderr', stderr);
 			console.log('stdout', stdout);
 
@@ -7880,8 +7889,8 @@ exports.trees_list = async function(req, res, next) {
 
 		
 
-		var query_str = "SELECT * FROM ct_trees WHERE source_id IN (0,1,2);";
-		query ("SELECT * FROM ct_trees WHERE source_id IN (0,1,2);", [], function(err, rows, result) {
+		var query_str = "SELECT * FROM ct_trees WHERE source_id IN (0,2);";
+		query ("SELECT * FROM ct_trees WHERE source_id IN (0,2);", [], function(err, rows, result) {
 			if (err) {
 				console.log(err);
 				res.status(400);

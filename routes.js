@@ -67,6 +67,7 @@ module.exports = async function(app, global) {
 	app.post("/cartogratree/api/v2/genotypes/variant_filtering_panel_filter_and_imputation", tree_controller.genotypes_variant_filtering_panel_filter_and_imputation);
 	// app.post("/cartogratree/api/v2/genotypes/variant_filtering_panel_filter_by_genotypes_rule_options", tree_controller.genotypes_variant_filtering_panel_filter_by_genotypes_rule_options);
 
+	// Popstruc Pop Struct Nextflow Workflow Endpoints
 	app.post("/cartogratree/api/v2/popstruct/get_ui_json", tree_controller.popstruct_get_ui_json);
 	app.post("/cartogratree/api/v2/popstruct/nextflow_workflow", tree_controller.popstruct_nextflow_workflow);
 	app.get("/cartogratree/api/v2/popstruct/nextflow_visualization", tree_controller.popstruct_nextflow_visualization);
