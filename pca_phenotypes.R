@@ -36,12 +36,7 @@ library(devtools)
 #install_github("vqv/ggbiplot")
 library(ggbiplot)
 
-png(paste(args[1],'/',args[2],'_pca_phenotypes.png', sep=""), res = 300) 
-ggbiplot(data_values_noNA.pca, obs.scale = 1, var.scale = 1,
-         point.size = 2,
-         varname.size = 5,
-         varname.color = "black",
-         varname.adjust = 1.2) +
-    theme_minimal()
+png(paste(args[1],'/',args[2],'_pca_phenotypes.png', sep="")) 
+ggbiplot(data_values_noNA.pca)
 dev.off();
 print(paste("analysis_id:",args[2], sep=""));
