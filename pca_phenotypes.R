@@ -78,7 +78,7 @@ p
 ggsave(
   filename = paste(args[1],'/',args[2],'_pca_phenotypes.png', sep=""),
   plot = p,
-  device = "pdf",
+  device = "png",
   units = "in",                 # Units must be in inches for ggsave
   width = 8,             # Convert width to inches
   height = 8,           # Convert height to inches
