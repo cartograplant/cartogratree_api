@@ -10,7 +10,7 @@ library(psych)
 # Load CSV data
 #The CSV file t import
 csv_data<-read.csv(paste(args[1],'/',args[2],'_environmental_scatter_plot.csv', sep=""))
-env <- csv_data[,-1]  # Assuming the first column is an ID and should be excluded
+env <- csv_data  # Assuming the first column is an ID and should be excluded
 # Clean up column names for better readability
 # Replace periods with spaces and remove metadata after parentheses/double periods
 colnames(env) <- gsub("\\.\\.", " (", colnames(env))  # Replace .. with (
