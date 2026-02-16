@@ -34,6 +34,7 @@ const JSONdb = require('simple-json-db');
 var db_storage = new JSONdb(__dirname + '/../storage.json', {asyncWrite: true, syncOnWrite: true});
 const treeController_functions = require('./treeController_functions');
 const { dir } = require('console');
+const e = require('cors');
 exports.db_storage = db_storage;
 
 require("tls").DEFAULT_ECDH_CURVE = "auto";
@@ -1582,7 +1583,11 @@ exports.phenotypes_pca = async function(req, res, next) {
     console.log('phenotypes_pca');
     var results = {};
     var studies = [];
-    var analysis_id = req.body.analysis_id;
+    // var analysis_id = req.body.analysis_id;
+	var user_id = req.body.user_id;
+	var workspace_name = req.body.workspace_name;
+	var analysis_id = req.body.analysis_id;
+	var workspace_dir = '/isg/treegenes/cartograplant_analysis_workspaces/' + user_id + '/' + workspace_name;
 	if(analysis_id == undefined) {
 		results['error'] = true;
 		res.send(JSON.stringify(results));
@@ -1739,14 +1744,14 @@ exports.phenotypes_pca = async function(req, res, next) {
 		}
 		else {
 			console.log('Generating PCA');
-			generate_pca();
+			generate_pca(analysis_id, workspace_dir);
 		}
 	});
     // fs.writeFileSync(__dirname + '/../store/' + analysis_id + '_pca_phenotypes.csv', csv_data);
 
     //const execSync = require('child_process').execSync;
 	//code = execSync('node -v');
-	function generate_pca() {
+	function generate_pca(analysis_id, workspace_dir) {
 		const exec = require('child_process').exec;
 		// code = execSync('node -v');
 		var cmd = "Rscript " + __dirname + "/../pca_phenotypes.R " + __dirname + "/../store/" + analysis_id;
@@ -1811,6 +1816,8 @@ exports.phenotypes_pca = async function(req, res, next) {
 			try {
 				var fs = require('fs');
 				var data = fs.readFileSync(__dirname + '/../store/' + analysis_id + '_pca_phenotypes.png');
+				var unix_timestamp = Math.floor(Date.now() / 1000);
+				fs.copyFileSync(__dirname + '/../store/' + analysis_id + '_pca_phenotypes.png', workspace_dir + '/' + unix_timestamp + '-AN' + analysis_id + '_IMAGEPCA_phenotypes-image.png');
 				var data_base64 = Buffer.from(data).toString('base64');
 
 				results['data_base64'] = data_base64;
@@ -1848,6 +1855,9 @@ exports.environmental_scatter_plot = function(req, res, next) {
 	var results = {};
 	console.log('req.body', req.body);
     var analysis_id = req.body.analysis_id;
+	var user_id = req.body.user_id;
+	var workspace_name = req.body.workspace_name;
+	var workspace_dir = '/isg/treegenes/cartograplant_analysis_workspaces/' + user_id + '/' + workspace_name;
 	var csv_data = req.body.csv_data;
 	if(analysis_id == undefined) {
 		results['error'] = true;
@@ -1862,7 +1872,12 @@ exports.environmental_scatter_plot = function(req, res, next) {
 		var cmd = "Rscript " + __dirname + "/../environmental_scatter_plot.R " + __dirname + "/../store " + analysis_id;
 		
 		var child = exec(cmd, function(error, stdout, stderr) {
-			
+			console.log('ERROR:');
+			console.log(error);
+			console.log('STDOUT:');
+			console.log(stdout);
+			console.log('STDERR:');
+			console.log(stderr);
 			if(error) {
 				console.log(error);
 				results['error'] = true;
@@ -1874,6 +1889,8 @@ exports.environmental_scatter_plot = function(req, res, next) {
 			try {
 				var fs = require('fs');
 				var data = fs.readFileSync(__dirname + '/../store/' + analysis_id + '_environmental_scatter_plot.jpeg');
+				var unix_timestamp = Math.floor(Date.now() / 1000);
+				fs.copyFileSync(__dirname + '/../store/' + analysis_id + '_environmental_scatter_plot.jpeg', workspace_dir + '/' + unix_timestamp + '-AN' + analysis_id + '_IMAGEENVSCATTERPLOT_environmental_scatter_plot-image.jpeg');
 				var data_base64 = Buffer.from(data).toString('base64');
 				// var data_base64 = Buffer(data).toString('base64');
 	
@@ -3743,7 +3760,7 @@ exports.gwas_step_execution = function(req, res, next) {
 		}
 		const exec = require('child_process').exec;
 		var cmd = "cd " + directory + '; ';
-		cmd += 'nextflow run TreeGenes/gwas-pipeline -hub gitlab -r main -profile treegenes --user_id ' + user_id +' --outdir \'' + workspace_dir + '\' ' + flags_line + ' ;';
+		cmd += 'nextflow run TreeGenes/gwas-pipeline -hub gitlab -r main -profile treegenes --analysis_id '  + analysis_id + ' --user_id ' + user_id +' --outdir \'' + workspace_dir + '\' ' + flags_line + ' ;';
 		console.log('cmd', cmd);
 		var results = {
 			status: 'failed'
@@ -3872,10 +3889,23 @@ exports.gwas_nextflow_visualization = function(req, res, next) {
 	console.log('Getting nextflow visualization');
 	try {
 		var analysis_id = req.query.analysis_id;
+		var type = null;
+		if (req.query.type != undefined) {
+			type = req.query.type;
+		}
 		var directory = '/isg/treegenes/cartograplant_analysis/' + analysis_id + '/gwas-pipeline';
 		var json_data = fs.readFileSync(directory + '/completion_message.json');
 		var json_object = JSON.parse(json_data);
-		var image_location = json_object['image'];
+		var image_location = '';
+		if (type == null) {
+			image_location = json_object['image'];
+		}
+		else if (type == 'qqplot') {
+			image_location = json_object['qqplot'];
+		}
+		else if (type == 'manhattan') {
+			image_location = json_object['manhattan'];
+		}
 		res.sendFile(image_location);
 		return;
 	}
