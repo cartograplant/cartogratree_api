@@ -62,6 +62,7 @@ p <- ggbiplot(
   theme(
     panel.grid.major = element_line(color = "gray90", size = 0.3),
     panel.grid.minor = element_blank(),
+    panel.background = element_rect(fill = "white", color = NA)
     legend.position = "none",
     axis.title = element_text(size = 20, face = "bold"),
     axis.text = element_text(size = 20),
