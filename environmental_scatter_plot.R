@@ -38,8 +38,11 @@ group <- factor(sample(group_levels, nrow(env), replace=TRUE))
 # Create color palette that scales with number of groups
 colors <- rainbow(length(group_levels), alpha=0.6)
 
+
+
 # Plot the pairs plot
 jpeg(paste(args[1], '/', args[2], '_environmental_scatter_plot.jpeg', sep=""), res=300)
+par(family = "sans")  # Use sans-serif font like ggplot2 default
 pairs.panels(
   env,
   bg = colors[group],  # Dynamically assign colors based on group
