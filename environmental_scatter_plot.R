@@ -51,7 +51,7 @@ pairs.panels(
   env,
   bg = colors[group],  # Dynamically assign colors based on group
   pch = 21,
-  main = "Collinearity Between Environmental Layers",
+  main = "Collinearity Among Environmental Layers",
   cex.main = 2, font.main = 2,
   cex.axis = 1.3, font.axis = 1,
   cex.lab = 1.9, font.lab = 2,
@@ -70,9 +70,16 @@ dev.off()
 
 RLogFile <- paste(args[1],'/',args[2],'_environmental_R_sessionInfo.csv', sep="")
 
+
+# Capture both output and errors
 sink(RLogFile)
+sink(RLogFile, type = "message")  # Capture errors/warnings too
+
 a <- sessionInfo()
 print(a)
+
+# Close both sinks
+sink(type = "message")
 sink()
 
 ################################################
