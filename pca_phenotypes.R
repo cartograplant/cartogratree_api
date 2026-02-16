@@ -54,8 +54,8 @@ p <- ggbiplot(
   scale_color_manual(values = "grey90") +
   scale_fill_manual(values = "grey90") +
   labs(
-    x = paste0("PC1 (", round(summary(pheno.pc)$importance[2,1] * 100, 1), "%)"),
-    y = paste0("PC2 (", round(summary(pheno.pc)$importance[2,2] * 100, 1), "%)"),
+    x = paste0("PC1 (", round(summary(data_values_noNA.pca)$importance[2,1] * 100, 1), "%)"),
+    y = paste0("PC2 (", round(summary(data_values_noNA.pca)$importance[2,2] * 100, 1), "%)"),
     title = "Principal Components\nOf Selected Traits"
   ) +
   theme_minimal(base_size = 20) +
