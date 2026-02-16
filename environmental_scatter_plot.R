@@ -22,18 +22,16 @@ vectordata=as.vector(csv_data)
 jpeg(paste(args[1],'/',args[2],'_environmental_scatter_plot.jpeg', sep=""), res = 300)
 # pairs(vectordata[,1:column_count], pch = 19) 
 pairs.panels(
-  vectordata[, 1:column_count],
-  method    = "pearson",
-  hist.col  = "grey80",
-  density   = TRUE,
-  ellipses  = TRUE,
-  lm        = FALSE,
-  smoother  = FALSE,
-  stars     = TRUE,
-  cex.cor   = 1.5,         # correlation text size
-  col       = "#2C3E50",   # point color
-  alpha     = 0.5,
-  pch       = 19,
-  gap       = 0
+  env,
+  bg = c("lightblue", "lightgreen")[group],   # fill colors by group
+  pch = 21,                                   # circle with fill
+  main = "Collinearity Between Environmental Layers",
+  cex.main = 2, font.main = 2,                # large, bold title
+  cex.axis = 1.3, font.axis = 1,              # large, bold tick labels
+  cex.lab = 1.9, font.lab = 2,                # large, bold axis labels
+  cex.cor = .9, font.cor = 2,                # large, bold correlation text
+  cex.labels = 1.2, font.labels = 2,          # large, bold variable names (above histograms)
+  hist.col = "grey90",
+  cex = 1.3                                   # enlarge points & diag text
 )
 dev.off();

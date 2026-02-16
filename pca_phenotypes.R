@@ -36,12 +36,52 @@ library(devtools)
 #install_github("vqv/ggbiplot")
 library(ggbiplot)
 
-png(paste(args[1],'/',args[2],'_pca_phenotypes.png', sep=""), res = 300) 
-ggbiplot(data_values_noNA.pca, obs.scale = 1, var.scale = 1,
-         point.size = 2,
-         varname.size = 5,
-         varname.color = "black",
-         varname.adjust = 1.2) +
-    theme_minimal()
-dev.off();
-print(paste("analysis_id:",args[2], sep=""));
+p <- ggbiplot(
+  pheno.pc,
+  obs.scale = 1,
+  var.scale = 1,
+  point.size = 2,
+  varname.size = 8,
+  labels.size = 20,
+  varname.color = "black",
+  varname.adjust = 1.5,
+  var.factor = .8,
+  ellipse = FALSE,
+  circle = FALSE,
+  alpha = 0.3,
+  varname.fontface = "bold"
+) +
+  scale_color_manual(values = "grey90") +
+  scale_fill_manual(values = "grey90") +
+  labs(
+    x = paste0("PC1 (", round(summary(pheno.pc)$importance[2,1] * 100, 1), "%)"),
+    y = paste0("PC2 (", round(summary(pheno.pc)$importance[2,2] * 100, 1), "%)"),
+    title = "Principal Components\nOf Selected Traits"
+  ) +
+  theme_minimal(base_size = 20) +
+  theme(
+    panel.grid.major = element_line(color = "gray90", size = 0.3),
+    panel.grid.minor = element_blank(),
+    legend.position = "none",
+    axis.title = element_text(size = 20, face = "bold"),
+    axis.text = element_text(size = 20),
+    plot.title = element_text(size = 30, face = "bold", hjust = 0.5),  # bold title, centered
+    plot.margin = margin(5, 5, 5, 5),
+    axis.line.x = element_line(color = "black", size = 0.8),
+    axis.line.y = element_line(color = "black", size = 0.8)
+  ) +
+  xlim(-3, 4) +
+  ylim(-3, 3)
+
+p
+
+ggsave(
+  filename = paste(args[1],'/',args[2],'_pca_phenotypes.png', sep=""),
+  plot = p,
+  device = "pdf",
+  units = "in",                 # Units must be in inches for ggsave
+  width = 8,             # Convert width to inches
+  height = 8,           # Convert height to inches
+  dpi = 300,         # Use the resolution from command-line options
+  limitsize = FALSE             # Allow saving beyond default limits
+)
