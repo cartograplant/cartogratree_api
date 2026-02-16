@@ -13,10 +13,10 @@ csv_data<-read.csv(paste(args[1],'/',args[2],'_environmental_scatter_plot.csv', 
 env <- csv_data[,-1]  # Assuming the first column is an ID and should be excluded
 # Clean up column names for better readability
 # Replace periods with spaces and remove metadata after parentheses/double periods
-colnames(env) <- gsub("\\.\\.", " (", colnames(env_data))  # Replace .. with (
-colnames(env) <- gsub("\\.", " ", colnames(env_data))      # Replace remaining . with spaces
-colnames(env) <- gsub("  +", " ", colnames(env_data))      # Remove multiple spaces
-colnames(env) <- trimws(colnames(env_data))                # Trim leading/trailing spaces
+colnames(env) <- gsub("\\.\\.", " (", colnames(env))  # Replace .. with (
+colnames(env) <- gsub("\\.", " ", colnames(env))      # Replace remaining . with spaces
+colnames(env) <- gsub("  +", " ", colnames(env))      # Remove multiple spaces
+colnames(env) <- trimws(colnames(env))                # Trim leading/trailing spaces
 colnames(env)
 
 # Get column count
