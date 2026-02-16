@@ -37,7 +37,7 @@ library(devtools)
 library(ggbiplot)
 
 p <- ggbiplot(
-  pheno.pc,
+  data_values_noNA.pca,
   obs.scale = 1,
   var.scale = 1,
   point.size = 2,
