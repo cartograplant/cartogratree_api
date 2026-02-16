@@ -38,10 +38,14 @@ group <- factor(sample(group_levels, nrow(env), replace=TRUE))
 # Create color palette that scales with number of groups
 colors <- rainbow(length(group_levels), alpha=0.6)
 
+# Calculate appropriate size based on number of columns
+plot_size <- max(12, column_count * 1.5)  # Minimum 12 inches, scales with variables
 
-
-# Plot the pairs plot
-jpeg(paste(args[1], '/', args[2], '_environmental_scatter_plot.jpeg', sep=""), res=300)
+jpeg(paste(args[1], '/', args[2], '_environmental_scatter_plot.jpeg', sep=""), 
+     width = plot_size, 
+     height = plot_size, 
+     units = "in",  # Specify inches
+     res = 300)
 par(family = "sans")  # Use sans-serif font like ggplot2 default
 pairs.panels(
   env,
