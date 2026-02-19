@@ -100,13 +100,11 @@ RLogFile <- paste(args[1],'/',args[2],'_phenotypes_R_sessionInfo.csv', sep="")
 
 # Capture both output and errors
 sink(RLogFile)
-sink(RLogFile, type = "message")  # Capture errors/warnings too
 
 a <- sessionInfo()
 print(a)
 
 # Close both sinks
-sink(type = "message")
 sink()
 
 ################################################
