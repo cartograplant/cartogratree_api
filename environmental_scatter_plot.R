@@ -68,19 +68,19 @@ dev.off()
 ################################################
 ################################################
 
-RLogFile <- paste(args[1],'/',args[2],'_environmental_R_sessionInfo.csv', sep="")
+# RLogFile <- paste(args[1],'/',args[2],'_environmental_R_sessionInfo.csv', sep="")
 
 
-# Capture both output and errors
-sink(RLogFile)
-sink(RLogFile, type = "message")  # Capture errors/warnings too
+# # Capture both output and errors
+# sink(RLogFile)
+# sink(RLogFile, type = "message")  # Capture errors/warnings too
 
-a <- sessionInfo()
-print(a)
+# a <- sessionInfo()
+# print(a)
 
-# Close both sinks
-sink(type = "message")
-sink()
+# # Close both sinks
+# sink(type = "message")
+# sink()
 
 ################################################
 ################################################
