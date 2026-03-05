@@ -3872,10 +3872,11 @@ exports.popstruct_nextflow_visualization = function(req, res, next) {
 	console.log('Getting nextflow visualization');
 	try {
 		var analysis_id = req.query.analysis_id;
+		var image_index = req.query.image_index;
 		var directory = '/isg/treegenes/cartograplant_analysis/' + analysis_id + '/popstruct/';
 		var json_data = fs.readFileSync(directory + '/completion_message.json');
 		var json_object = JSON.parse(json_data);
-		var barchart_location = json_object['image'];
+		var barchart_location = json_object['image'][image_index];
 		res.sendFile(barchart_location);
 		return;
 	}
@@ -3970,8 +3971,18 @@ exports.popstruct_nextflow_workflow = function(req, res, next) {
 			var child2 = exec(cmd2, function(error, stdout, stderr) {
 				console.log('stderr', stderr);
 				console.log('stdout', stdout);
+				// Read the completion_message.json and send it back in the response
+				try {
+					var completion_json_data = JSON.parse(fs.readFileSync(directory + '/completion_message.json'));
+					results['completion_message'] = completion_json_data;
+				}
+				catch (err) {
+					console.log(err);
+				}
+				results['completion_message'] = completion_json_data;
+				res.send(JSON.stringify(results));
 			});
-			res.send(JSON.stringify(results));
+			// res.send(JSON.stringify(results));
 			return;
 		});
 	}
