@@ -60,8 +60,9 @@ p <- ggbiplot(
   ) +
   theme_minimal(base_size = 20) +
   theme(
-    panel.grid.major = element_line(color = "gray90", size = 0.3),
-    panel.grid.minor = element_blank(),
+    #panel.grid.major = element_line(color = "gray90", size = 0.3),
+    #panel.grid.minor = element_blank(),
+    panel.grid = element_blank(),
     panel.background = element_rect(fill = "white", color = NA),
     legend.position = "none",
     axis.title = element_text(size = 20, face = "bold"),
@@ -99,13 +100,11 @@ RLogFile <- paste(args[1],'/',args[2],'_phenotypes_R_sessionInfo.csv', sep="")
 
 # Capture both output and errors
 sink(RLogFile)
-sink(RLogFile, type = "message")  # Capture errors/warnings too
 
 a <- sessionInfo()
 print(a)
 
 # Close both sinks
-sink(type = "message")
 sink()
 
 ################################################
