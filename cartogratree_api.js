@@ -270,7 +270,7 @@ var logger_url = function(req, res, next) {
 }
 
 app.use(logger_url);
-app.use(cors());
+// app.use(cors());
 app.use(responseTime());
 app.use(bodyParser.json({
 	limit: '100000kb'
@@ -538,6 +538,9 @@ var ctapi_wss = {
 			
 			for(var i=0; i < data_properties_objects.length; i++) {
 				header_line += "," + data_properties_objects[i]['property_value'];
+				// Units
+				header_line += "," + data_properties_objects[i]['property_value'] + "_unit_ids";
+				header_line += "," + data_properties_objects[i]['property_value'] + "_unit_labels";
 			}
 			//console.log("Header line:" + header_line);
 			wss.send('environmental_data_csv_line::' + header_line);
@@ -635,6 +638,29 @@ var ctapi_wss = {
 										// analysis_envdata_csv_data += ',' + key_value;
 			
 										csv_line += "," + key_value;
+
+										var layer_id = data_property_object['layer_id'];
+										// Unit lookup on the public.cartogratree_layers_environmental_units table
+										var unit_info_sql = "SELECT unit_ids, unit_labels FROM public.cartogratree_layers_environmental_units WHERE layer_id = $1 LIMIT 1;";
+										var unit_info_cached_rows = ct_main_cache.get(unit_info_sql);
+										var unit_info_rows = [];
+										if(unit_info_cached_rows != undefined || unit_info_cached_rows != null) {
+											unit_info_rows = unit_info_cached_rows;
+										}
+										else {
+											var unit_info_qres = await client.query(unit_info_sql, [layer_id]);
+											unit_info_rows = unit_info_qres.rows;
+											// add to cache
+											ct_main_cache.put(unit_info_sql, unit_info_rows, cache_time_14_days);
+										}
+										var unit_ids = "NA";
+										var unit_labels = "NA";
+										if (unit_info_rows.length > 0) {
+											unit_ids = unit_info_rows[0].unit_ids;
+											unit_labels = unit_info_rows[0].unit_labels;
+										}
+										csv_line += "," + unit_ids;
+										csv_line += "," + unit_labels;
 			
 
 										// For storing in cartogratree_envdata_<layer_id>
@@ -643,7 +669,9 @@ var ctapi_wss = {
 											parseFloat(tree_basic_data_object['tree_longitude']),
 											k,
 											key_name,
-											key_value
+											key_value,
+											unit_ids,
+											unit_labels
 										]
 										console.log('envdata db record data', JSON.stringify(db_record));
 										var envdata_create_table_sql = "CREATE TABLE IF NOT EXISTS public.cartogratree_envdata_" + data_property_object['layer_id'] + " (";
@@ -653,6 +681,8 @@ var ctapi_wss = {
 										envdata_create_table_sql += "property_id integer NOT NULL,";
 										envdata_create_table_sql += "property_name varchar(1024) NOT NULL,";
 										envdata_create_table_sql += "property_value varchar(1024) NOT NULL,";
+										envdata_create_table_sql += "unit_ids varchar(1024) NOT NULL,";
+										envdata_create_table_sql += "unit_labels varchar(1024) NOT NULL,";
 										envdata_create_table_sql += "UNIQUE (latitude, longitude, property_id, property_name, property_value)"
 										envdata_create_table_sql += ")";
 										await client.query(envdata_create_table_sql);
@@ -666,16 +696,17 @@ var ctapi_wss = {
 
 
 										var envdata_insert_sql = "INSERT INTO public.cartogratree_envdata_" + data_property_object['layer_id'] + " ";
-										envdata_insert_sql += "(latitude, longitude, property_id, property_name, property_value) ";
-										envdata_insert_sql += " VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING";
-										await client.query(envdata_insert_sql, [db_record[0],db_record[1],db_record[2],db_record[3],db_record[4]]);
-										
+										envdata_insert_sql += "(latitude, longitude, property_id, property_name, property_value, unit_ids, unit_labels) ";
+										envdata_insert_sql += " VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING";
+										await client.query(envdata_insert_sql, [db_record[0],db_record[1],db_record[2],db_record[3],db_record[4],db_record[5],db_record[6]]);
 									}
 								}
 							}
 							else {
 								var key_value = "NA";
 								csv_line += "," + key_value;
+								csv_line += ",NA"; // unit ids
+								csv_line += ",NA"; // unit labels
 							}							
 						}
 						catch(err) {
@@ -1310,6 +1341,7 @@ function generateMD5Hash(inputString) {
 const conf = require('./config.js');
 const { exit } = require('process');
 const { url } = require('inspector');
+const e = require('cors');
 var pg_pool = new pg.Pool(conf.conf);
 
 //Begin listening for connections and messages

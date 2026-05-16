@@ -726,50 +726,147 @@ async function download_treesnap_image(tree_data, image_category, icimages_index
 async function treesnap_add_row(tree_data) {
 	console.log('TreeSnap ID:' + tree_data["id"]);
 	// console.log(tree_data);
+	if (tree_data["id"] == 20805) {
+		console.log("MAMA DETECTION: This tree has an ID of 20805, which is a known Alaskan Willow that is missing species information, so we will attempt to populate the family for this tree using the genus and species if possible and if not, we will still include this tree in the database because it is a known Alaskan Willow that we want in the database even though it is missing species information");
+		console.log(tree_data);
+	}
+	tree_data["family"] = null; // default to null but we will try to populate this if we can find the genus and species in the TreeGenes database
 	if (tree_data["location_accuracy"] != "-1" && tree_data["location_accuracy"] != "-2") {
-		
-
+		var genus_lowercase = tree_data["genus"].toLowerCase();
+		var category_lowercase = tree_data["category"].toLowerCase();
+		// console.log(tree_data["genus"] + " " + tree_data["species"] + " Location Accuracy:" + tree_data["location_accuracy"]);
+		// Check if the genus and species is in the TreeGenes database, if not, ignore these
+		var gs_rows = null;
+		if (treesnap_cache.get("treesnap_genus_species_" + tree_data["genus"].toLowerCase() + "_" + tree_data["species"].toLowerCase()) != null) {
+			gs_rows = {
+				rows: treesnap_cache.get("treesnap_genus_species_" + tree_data["genus"].toLowerCase() + "_" + tree_data["species"].toLowerCase())
+			}
+			// we have this genus and species cached as good, so we can skip the db query and just continue
+			// console.log("Cache hit for genus and species:" + tree_data["genus"] + " " + tree_data["species"]);
+		}
+		else {
+			// we don't have this genus and species cached, so we need to query the db to see if it is good or not
+			var gs_rows = await pool.query("SELECT organism_id, genus, species FROM chado.organism WHERE genus ILIKE $1 AND species ILIKE $2 LIMIT 1;",[tree_data["genus"], tree_data["species"]]);
+			treesnap_cache.put("treesnap_genus_species_" + tree_data["genus"].toLowerCase() + "_" + tree_data["species"].toLowerCase(), gs_rows.rows);
+			// console.log("Cache put for genus and species:" + tree_data["genus"] + " " + tree_data["species"]);
+		}
+		console.log("Genus and species query result length:" + gs_rows.rows.length);
+		if (gs_rows.rows.length > 0) {
+			// console.log("*** Found a match for genus and species: " + tree_data["genus"] + " " + tree_data["species"]);
+			// console.log(gs_rows.rows[0]);
+			// we found a match in the db for this genus and species, so we can continue like normal but also lookup the family for the insert statement
+			var family_rows = null;
+			if (treesnap_cache.get("treesnap_family_" + gs_rows.rows[0].organism_id) != null) {
+				family_rows = {
+					rows: treesnap_cache.get("treesnap_family_" + gs_rows.rows[0].organism_id)
+				};
+				// console.log("Cache hit for family for organism_id:" + gs_rows.rows[0].organism_id);
+			}
+			else {
+				family_rows = await pool.query("SELECT value FROM chado.organismprop WHERE organism_id = $1 AND type_id = $2", [gs_rows.rows[0].organism_id, 10]);
+				treesnap_cache.put("treesnap_family_" + gs_rows.rows[0].organism_id, family_rows.rows);
+				// console.log("Cache put for family for organism_id:" + gs_rows.rows[0].organism_id);
+			}
+			var family = family_rows.rows[0].value;
+			tree_data["family"] = family;
+		} 
 		// if(tree_data["species"] == "Unknown" || tree_data["genus"] == "Unknown") {
 		// 10/1/2024 Temporarily replaced the Unknown checks to get Alaskan Willow data into the db
-		if(tree_data["species"] == "Dummyval") {
+		else if(tree_data["species"] != "Dummyval") {
 			// Try to populate using otherLabel(treesnap) which translates to TG common_name (organism table)
 			var otherLabel = tree_data["meta_data"]["otherLabel"];
 			// console.log("otherLabel:" + otherLabel);
-			if (otherLabel == undefined || otherLabel == "undefined" || otherLabel == "Other" || otherLabel == "Unknown" || otherLabel == "unknown") {
-				return; // don't continue to add this tree
-			}
-			else {
-				// Let's make otherlabel lower case
-				otherLabel = otherLabel.toLowerCase();
-				// Most likely got the otherLabel, try to query db
-				//var pg_n_client_tg = new pg_native_client(); //Connect to TreeGenes Database server synchronously
-				//pg_n_client_tg.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
-				var cn_rows = await pool.query("SELECT distinct(lower(common_name)) as common_name, genus, species FROM chado.organism WHERE lower(common_name) = $1;",[otherLabel]);
-				// pg_n_client_tg.end(); //Disconnect from TreeGenes database server
-				if(cn_rows.length > 0) {
-					// we found a match in the db that has the common_name and genus and species!
-					//console.log("Found a match for otherLabel and common_name");
-					//console.log(cn_rows[0]);
-					tree_data["genus"] = cn_rows[0].genus;
-					tree_data["species"] = cn_rows[0].species;
+			// if (otherLabel == undefined || otherLabel == "Other" || otherLabel == "Unknown" || otherLabel == "unknown") {
+			// 	return; // don't continue to add this tree
+			// }
+			// else {
+				if (genus_lowercase == "salix" || category_lowercase.includes("alaskan willow")) {
+					console.log("MAMA DETECTION: Genus is Salix, so we will try to use otherLabel to find the species because it is likely an Alaskan Willow and we want to include these in the db");
 				}
 				else {
-					return; // don't continue to add this tree
+					// Let's make otherlabel lower case
+					if (otherLabel == undefined) {
+						otherLabel = '';
+					}
+					otherLabel = otherLabel.toLowerCase();
+					
+
+					// Remove 'other' from the otherlabel value
+					otherLabel = otherLabel.replaceAll("other", "").trim();
+					// Remote curved brakets from the otherlabel value
+					otherLabel = otherLabel.replaceAll("(", "").replaceAll(")", "").trim();
+
+					// Most likely got the otherLabel, try to query db
+					//var pg_n_client_tg = new pg_native_client(); //Connect to TreeGenes Database server synchronously
+					//pg_n_client_tg.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+					var cn_rows = null;
+					if (treesnap_cache.get("treesnap_common_name_" + otherLabel) != null) {
+						cn_rows = {
+							rows: treesnap_cache.get("treesnap_common_name_" + otherLabel)
+						};
+						console.log("Cache hit for common name:" + otherLabel);
+					}
+					else {
+						cn_rows = await pool.query("SELECT distinct(lower(common_name)) as common_name, genus, species FROM chado.organism WHERE lower(common_name) ILIKE $1;",['%' + otherLabel + '%']);
+						treesnap_cache.put("treesnap_common_name_" + otherLabel, cn_rows.rows);
+						console.log("Cache put for common name:" + otherLabel);
+					}
+					// pg_n_client_tg.end(); //Disconnect from TreeGenes database server
+					if(cn_rows.rows.length > 0) {
+						// we found a match in the db that has the common_name and genus and species!
+						//console.log("Found a match for otherLabel and common_name");
+						//console.log(cn_rows[0]);
+						tree_data["genus"] = cn_rows.rows[0].genus;
+						tree_data["species"] = cn_rows.rows[0].species;
+					}
+					else {
+						return; // don't continue to add this tree
+					}
 				}
+			// }
+		}
+
+		// Check to see if chado.organism matches the current genus and species
+		var species_rows = null;
+		if (treesnap_cache.get("treesnap_genus_species_" + tree_data["genus"].toLowerCase() + "_" + tree_data["species"].toLowerCase()) != null) {
+			species_rows = {
+				rows: treesnap_cache.get("treesnap_genus_species_" + tree_data["genus"].toLowerCase() + "_" + tree_data["species"].toLowerCase())
 			}
+			// we have this genus and species cached as good, so we can skip the db query and just continue
+			console.log("Cache hit for genus and species (second check):" + tree_data["genus"] + " " + tree_data["species"]);
 		}
 		else {
-			// continue like normal, no mods necessary
+			// we don't have this genus and species cached, so we need to query the db to see if it is good or not
+			 species_rows = await pool.query("SELECT genus, species FROM chado.organism WHERE genus ILIKE $1 AND species ILIKE $2 LIMIT 1;",[tree_data["genus"], tree_data["species"]]);
+			 treesnap_cache.put("treesnap_genus_species_" + tree_data["genus"].toLowerCase() + "_" + tree_data["species"].toLowerCase(), species_rows.rows);
+			 console.log("Cache put for genus and species (second check):" + tree_data["genus"] + " " + tree_data["species"]);
 		}
+
+		// species_rows = await pool.query("SELECT genus, species FROM chado.organism WHERE genus ILIKE $1 AND species ILIKE $2 LIMIT 1;",[tree_data["genus"], tree_data["species"]]);
+		
+		// The salix is to cater for MAMA Alaskan Willow data which has species listed as Unknown but 
+		// we can confirm these are willows based on the otherLabel field and we want to include these 
+		// in the db even if we don't have a species name for them
+		if (species_rows.rows.length == 0 && category_lowercase.includes("alaskan willow") == false) {
+			// No match in the db for this genus and species, so we should not add it
+			return;
+		}
+		
+		if (genus_lowercase == "salix" || category_lowercase.includes("alaskan willow") == true) {
+			console.log("MAMA DETECTION: Genus is Salix, so we will add this tree even if the species is unknown because it is likely an Alaskan Willow");
+		}
+
 		// fs.appendFileSync('meta_data.txt', JSON.stringify(tree_data['meta_data']) + "\n");
 		// console.log('[TREESNAP] INSERTING TREESNAP TREE');
 		var category = null;
-		var category_lowercase = '';
+		// var category_lowercase = '';
 		if (tree_data['category'] != undefined) {
 			category = tree_data['category'];
 			category_lowercase = category.toLowerCase();
+			category_lowercase = category_lowercase.replaceAll("(", "").replaceAll(")", "").trim();
+			category_lowercase = category_lowercase.replaceAll("other", "").trim();
 			// console.log(category + ' vs ' + category_lowercase);
-			if (category_lowercase == 'alaskan willow') {
+			if (category_lowercase.includes('alaskan willow')) {
 				console.log('Found alaskan willow category');
 				tree_data["genus"] = 'Salix'; // Default Genus
 				var willowSpecies = tree_data['meta_data']['willowSpecies'];
@@ -810,7 +907,7 @@ async function treesnap_add_row(tree_data) {
 
 
 		// console.log(category_lowercase);
-		if (category_lowercase == 'alaskan willow') {
+		if (category_lowercase.includes('alaskan willow')) {
 			// console.log('Alaskan Willow inserted into EVOME table');
 			var results = await pool.query("INSERT INTO public.ct_trees_evome (uniquename, species, genus, family, subkingdom, latitude, longitude, source_id, icon_type, category, latitude_precise, longitude_precise) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT(uniquename) DO NOTHING",
 				["treesnap." + tree_data["id"], tree_data["genus"] + " " + tree_data["species"], tree_data["genus"], null, null, latitude, longitude, 5, 4, category, latitude_precise, longitude_precise]);
@@ -869,7 +966,7 @@ async function treesnap_add_row(tree_data) {
 			//if (tree_data["species"] != "" && tree_data["species"].includes("Unknown") == false) {
 			if (isSea(latitude_precise, longitude_precise) == false) {
 				var results = await pool.query("INSERT INTO public.ct_trees_treesnap (uniquename, species, genus, family, subkingdom, latitude, longitude, source_id, icon_type, category, latitude_precise, longitude_precise) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT(uniquename) DO NOTHING",
-					["treesnap." + tree_data["id"], tree_data["genus"] + " " + tree_data["species"], tree_data["genus"], null, null, latitude, longitude, 1, 4, category, latitude_precise, longitude_precise]);
+					["treesnap." + tree_data["id"], tree_data["genus"] + " " + tree_data["species"], tree_data["genus"], tree_data["family"], null, latitude, longitude, 1, 4, category, latitude_precise, longitude_precise]);
 			}
 					// }
 		}

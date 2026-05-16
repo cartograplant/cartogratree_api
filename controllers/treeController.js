@@ -228,16 +228,17 @@ async function anecdata_login_do() {
 		})
 	});
 
-	var url = 'https://anecdata.org/rest_users/login.json?nocache=' + Math.floor(Date.now() / 1000);
+	var url = '';
+	// url = 'https://anecdata.org/rest_users/login.json?nocache=' + Math.floor(Date.now() / 1000);
+	url = 'https://api.anecdata.org/auth/login?nocache=' + Math.floor(Date.now() / 1000);
+	console.log(url);
 	// console.log(config);
 	axios_instance({
 		method: 'POST',
 		url: url,
 		data: {
-			"User": {
-				"email": config.conf_anecdata.username,
-				"password": config.conf_anecdata.password
-			}				
+			"email": config.conf_anecdata.username,
+			"password": config.conf_anecdata.password			
 		},
 		headers: {
 			'User-Agent': 'TreeGenesDB',
@@ -249,7 +250,7 @@ async function anecdata_login_do() {
 		var data = response.data;
 		console.log(data.token);
 		config.conf_anecdata.token_loggedin = data.token;
-		console.log(config.conf_anecdata);
+		// console.log(config.conf_anecdata);
 		return data;
 	}).catch (function(err) {
 		console.log(err);
@@ -2024,7 +2025,7 @@ exports.analysis_delete_data = async function(req, res, next) {
 	try {
 		var tree_ids = JSON.parse(req.body.tree_ids);
 		//var query_str = "SELECT distinct(latitude, longitude) FROM ct_trees_all_view WHERE uniquename IN (";
-		var query_str = "SELECT latitude,longitude,uniquename FROM ct_trees_all_view WHERE uniquename IN (";
+		var query_str = "SELECT latitude,longitude,uniquename FROM ct_trees WHERE uniquename IN (";
 		for(var i=0; i<tree_ids.length; i++) {
 			if(i > 0) {
 				query_str += ',';
@@ -2062,7 +2063,7 @@ exports.analysis_delete_data = async function(req, res, next) {
 exports.environmental_get_unique_locations_from_treeids = function(req,res,next) {
 	try {
 		var tree_ids = JSON.parse(req.body.tree_ids);
-		var query_str = "SELECT distinct(latitude, longitude) FROM ct_trees_all_view WHERE uniquename IN (";
+		var query_str = "SELECT distinct(latitude, longitude) FROM ct_trees WHERE uniquename IN (";
 		// var query_str = "SELECT latitude,longitude,uniquename FROM ct_trees_all_view WHERE uniquename IN (";
 		for(var i=0; i<tree_ids.length; i++) {
 			if(i > 0) {
@@ -2105,7 +2106,7 @@ exports.environmental_get_unique_locations_from_treeids = function(req,res,next)
 		var property_name = req.body.property_name;
 		var locations = JSON.parse(req.body.locations);
 		
-		var query_str = "SELECT latitude, longitude, property_name, property_value FROM public.cartogratree_envdata_" + layer_id + " WHERE property_id = " + property_id + " AND (";
+		var query_str = "SELECT latitude, longitude, property_name, property_value, unit_ids, unit_labels FROM public.cartogratree_envdata_" + layer_id + " WHERE property_id = " + property_id + " AND (";
 		for(var i=0; i<locations.length; i++) {
 			if(i > 0) {
 				query_str += ' OR ';
@@ -2217,7 +2218,7 @@ exports.treesnap_collection_name_lookup_by_tree_id = function(req,res,next) {
 	console.log(req.query);
 	var tree_id = req.query.tree_id;
 	// var query_str = 'SELECT * FROM public.ct_trees_treesnap WHERE uniquename = $1';
-	var query_str = 'SELECT * FROM public.ct_trees_all_view WHERE uniquename = $1';
+	var query_str = 'SELECT * FROM public.ct_trees WHERE uniquename = $1';
 	if (req.query.tree_id != undefined) {
 		console.log(query_str);
 		query (query_str, [tree_id], function (err, rows, result) {
@@ -3747,7 +3748,21 @@ exports.gwas_step_execution = function(req, res, next) {
 		console.log('flag_names', flag_names);
 		for (var i = 0; i < flag_names.length; i++) {
 			var flag_name = flag_names[i];
-			flags_line += "--" + flag_name + " '" + flags[flag_name] + "' ";
+			// Check if flags[flag_name] is an array or not
+			if (Array.isArray(flags[flag_name])) {
+				// If it's an array, we need to add csv values
+				var csv_values = flags[flag_name].join(',');
+				// Gabe needed this for env_col to be cast as a string
+				if (flag_name = 'env_col') {
+					if (csv_values.includes(',') == false) {
+						csv_values = csv_values + ',';
+					}
+				}
+				flags_line += "--" + flag_name + " '" + csv_values + "' ";
+			}
+			else {
+				flags_line += "--" + flag_name + " '" + flags[flag_name] + "' ";
+			}
 		}
 		console.log('Flags line: ' + flags_line);
 		var directory = '/isg/treegenes/cartograplant_analysis/' + analysis_id + '/gwas-pipeline';
@@ -4406,9 +4421,18 @@ exports.genotypes_merge_vcfs_run = function(req, res, next) {
 		var user_id = req.body.user_id;
 		var workspace_name = req.body.workspace_name;
 		var analysis_id = req.body.analysis_id;
+		
 		var workspace_dir = '/isg/treegenes/cartograplant_analysis_workspaces/' + user_id + '/' + workspace_name;
 
 		var payload_json = req.body.payload;
+		var study_to_retain_clones_argument = '';
+		var payload_json_object = JSON.parse(payload_json);
+		if (payload_json_object != undefined) {
+			if (payload_json_object['study_to_retain_clones'] != undefined) {
+				study_to_retain_clones_argument = '--study_selection ' + payload_json_object['study_to_retain_clones'];
+			}
+		}
+		
 		var directory = '/isg/treegenes/cartograplant_analysis/' + analysis_id + '/variant-filtering-pipeline/vcf-merge';
 		try {
 			fs.rmSync(directory + '/completion_message.json');
@@ -4430,7 +4454,7 @@ exports.genotypes_merge_vcfs_run = function(req, res, next) {
 		// Version 1 used --input 'vcf_location'
 		// cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -r main -profile treegenes --outdir \'' + workspace_dir + '\' --input \'' + vcf_location + '\' --panel \'filter-by-genotypes\';';
 		// Version 2 uses --input structured_json.json
-		cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -r main -profile treegenes --panel \'vcf-merge\' --input \'' + payload_json_location + '\' --outdir \'' + workspace_dir + '\';';
+		cmd += 'nextflow run TreeGenes/variant-filtering-pipeline -r main -profile treegenes --panel \'vcf-merge\' ' + study_to_retain_clones_argument + ' --input \'' + payload_json_location + '\' --outdir \'' + workspace_dir + '\';';
 		console.log('cmd', cmd);
 		var results = {
 			status: 'failed',
@@ -6104,7 +6128,8 @@ exports.force_reload_mama = async function(req, res, next) {
 		while (page_index < page_total) { 
 			page_index = page_index + 1;
 			try {
-				var url = "https://anecdata.org/rest_observations_v1.json?project_id=316&page=" + page_index + "&nocache=" + Math.floor(Date.now() / 1000);
+				// var url = "https://anecdata.org/rest_observations_v1.json?project_id=316&page=" + page_index + "&nocache=" + Math.floor(Date.now() / 1000);
+				var url = "https://api.anecdata.org/observations?project_id=316&page=" + page_index + "&nocache=" + Math.floor(Date.now() / 1000);
 				console.log('URL:' + url);
 				var config2 = {
 					method: 'GET',
@@ -6123,7 +6148,8 @@ exports.force_reload_mama = async function(req, res, next) {
 						// console.log(data);
 						console.log(data.pagination);
 						page_total = data.pagination.pageCount;
-						var items = data.items; // array
+						// var items = data.items; // array
+						var items = data.data; // array
 						for (var i = 0; i < items.length; i++) {
 							
 							var item = items[i];
@@ -6161,7 +6187,6 @@ exports.force_reload_mama = async function(req, res, next) {
 exports.force_reload_treesnap = async function(req, res, next) {
 	var api_superuser_password = req.query.asup;
 	
-
 	var api_key = req.query.api_key;
 	// const fs = require('fs');
 	// try {
@@ -7570,7 +7595,12 @@ exports.total_unique_species = function(req, res, next) {
  * @param {function} next - Next middleware function in the application"s request-response cycle
  */
 exports.total_species = function(req, res, next) {
+	
 	var query_str = "SELECT COUNT(*) AS count FROM (SELECT DISTINCT ON(species) * FROM ct_trees WHERE source_id IN (0,1,2,3)) t";
+	if (req.query.exclude_bien != undefined && req.query.exclude_bien == "true") {
+		query_str = "SELECT COUNT(*) AS count FROM (SELECT DISTINCT ON(species) * FROM ct_trees WHERE source_id IN (0,1,2)) t";
+	}
+	console.log(query_str);
 	var cached_results = ct_cache.get(query_str);
 	if(cached_results == null) {
 		query (query_str, [], function(err, rows, result) {
@@ -7591,6 +7621,53 @@ exports.total_species = function(req, res, next) {
 	}
 }
 
+exports.layers_count = function(req, res, next) {
+	var query_str = "SELECT count(*) as c1 from public.cartogratree_layers;";
+	var cached_results = ct_cache.get(query_str);
+	if(cached_results == null) {
+		query (query_str, [], function(err, rows, result) {
+			if (err) {
+				console.log(err);
+				res.status(400);
+				return;
+			}
+			ct_cache.put(query_str, rows, cache_time_24);
+			res.status(200).json(rows[0]["c1"]);
+			return;
+		});
+	}
+	else {		 
+		var rows = cached_results;
+		res.status(200).json(rows[0]["c1"]);
+		return;		 
+	}
+};
+
+exports.genera_count = function(req, res, next) {
+	var query_str = "SELECT COUNT(DISTINCT genus) FROM ct_trees WHERE source_id IN (0,1,2,3);";
+	if (req.query.exclude_bien != undefined && req.query.exclude_bien == "true") {
+		query_str = "SELECT COUNT(DISTINCT genus) FROM ct_trees WHERE source_id IN (0,1,2);";
+	}
+	var cached_results = ct_cache.get(query_str);
+	if(cached_results == null) {
+		query (query_str, [], function(err, rows, result) {
+			if (err) {
+				console.log(err);
+				res.status(400);
+				return;
+			}
+			ct_cache.put(query_str, rows, cache_time_24);
+			res.status(200).json(rows[0]["count"]);
+			return;
+		});
+	}
+	else {		
+		var rows = cached_results;
+		res.status(200).json(rows[0]["count"]);
+		return;
+	}
+}
+
 /**
  * Returns the total number of trees currently recorded
  * @param {object} request - Request object
@@ -7598,7 +7675,11 @@ exports.total_species = function(req, res, next) {
  * @param {function} next - Next middleware function in the application"s request-response cycle
  */
 exports.total_trees = function(req, res, next) {
+	
 	var query_str = "SELECT COUNT(*) FROM ct_trees;";
+	if (req.query.exclude_bien != undefined && req.query.exclude_bien == "true") {
+		query_str = "SELECT COUNT(*) FROM ct_trees WHERE source_id IN (0,1,2,5,6);";
+	}
 	var cached_results = ct_cache.get(query_str);
 	if(cached_results == null) {
 		query (query_str, [], function(err, rows, result) {
@@ -7667,13 +7748,13 @@ exports.trees_shared_trees = function(req, res, next) {
 }
 
 function build_tree_query_str(query_conditions, sources) {	
-	var query_str = "SELECT DISTINCT ON(uniquename) * FROM public.ct_trees_all_view WHERE";
+	var query_str = "SELECT DISTINCT ON(uniquename) * FROM public.ct_trees WHERE";
 	//var query_str = "SELECT * FROM ct_trees_all_view WHERE";
 	if (query_conditions.length > 0) {
 		query_str = query_str + " " + query_conditions + " AND (";
 	}
 	else {
-		query_str = "SELECT DISTINCT ON(uniquename) * FROM public.ct_trees_all_view WHERE (";
+		query_str = "SELECT DISTINCT ON(uniquename) * FROM public.ct_trees WHERE (";
 	}
 
 	for (var s = 0; s < sources.length; s++) {
@@ -7931,7 +8012,7 @@ exports.trees_list = async function(req, res, next) {
 		
 
 		var query_str = "SELECT * FROM ct_trees WHERE source_id IN (0,2);";
-		query ("SELECT * FROM ct_trees WHERE source_id IN (0,2);", [], function(err, rows, result) {
+		query (query_str, [], function(err, rows, result) {
 			if (err) {
 				console.log(err);
 				res.status(400);

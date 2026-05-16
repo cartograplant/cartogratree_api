@@ -8,10 +8,18 @@ const cache_time_24 = 24*60*60*1000;
 const fs = require('fs');
 const pool = new Pool({
 	host: config.conf_bienv4.host,
-	port: config.conf_bienv4.post,
+	port: config.conf_bienv4.port,
 	database: config.conf_bienv4.database,
 	user: config.conf_bienv4.user,
 	password: config.conf_bienv4.password, 
+});
+
+const treegenes_pool = new Pool({
+	host: config.conf.host,
+	port: config.conf.port,
+	database: config.conf.database,
+	user: config.conf.user,
+	password: config.conf.password, 
 });
 
 async function perform_bienv4_generategeojson_linkedwithtganddryad_import() {
@@ -32,11 +40,17 @@ async function perform_bienv4_generategeojson_linkedwithtganddryad_import() {
 			}
 			else {
 				//Get all species from TreeGenes to use for searching
-				var pg_n_client = new pg_native_client(); //Connect to TreeGenes Database server
-				pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
+				// var pg_n_client = new pg_native_client(); //Connect to TreeGenes Database server
+				// pg_n_client.connectSync('postgresql://' + config.conf.user + ':' + config.conf.password + '@' + config.conf.host + ':' + config.conf.port + '/' + config.conf.database + '');
 				// console.log('IT CAME HERE');
-				var rows = pg_n_client.querySync("SELECT distinct(species) as species FROM (SELECT DISTINCT ON(uniquename) * FROM public.ct_trees_all_view WHERE (source_id = 0 OR source_id = 2)) AS TABLE1");
-				pg_n_client.end();
+				// var rows = pg_n_client.querySync("SELECT distinct(species) as species FROM (SELECT DISTINCT ON(uniquename) * FROM public.ct_trees_all_view WHERE (source_id = 0 OR source_id = 2)) AS TABLE1");
+				//pg_n_client.end();
+
+				const treegenes_client = await treegenes_pool.connect();
+				var qres = await treegenes_client.query("SELECT distinct(species) as species FROM (SELECT DISTINCT ON(uniquename) * FROM public.ct_trees_all_view WHERE (source_id = 0 OR source_id = 2)) AS TABLE1",[]);
+				var rows = qres.rows;
+				treegenes_client.release();
+
 				// console.log('IT CAME HERE 2');
 				//semi global variables
 				var tree_count_invalid = 0;

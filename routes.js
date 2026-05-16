@@ -160,6 +160,9 @@ module.exports = async function(app, global) {
 	app.get("/cartogratree/api/v2/stats/num/species", tree_controller.total_species);
 	app.get("/cartogratree/api/v2/stats/num/pub", tree_controller.total_publications);
 	app.get("/cartogratree/api/v2/stats/num/trees", tree_controller.total_trees);
+	app.get("/cartogratree/api/v2/stats/num/layers", tree_controller.layers_count);
+	app.get("/cartogratree/api/v2/stats/num/genera", tree_controller.genera_count);
+
 
 	app.post("/cartogratree/api/v2/trees/shared_trees", tree_controller.trees_shared_trees);
 	
