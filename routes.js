@@ -29,6 +29,9 @@ module.exports = async function(app, global) {
 	app.get("/cartogratree/api/v2/anecdata/login", tree_controller.anecdata_login); // this has the mama data by performing login
 	app.get("/cartogratree/api/v2/trees/mama/force_reload", tree_controller.force_reload_mama);
 	app.get("/cartogratree/api/v2/trees/mama/get_tree_phenotypes", tree_controller.mama_get_tree_phenotypes);
+	app.get("/cartogratree/api/v2/trees/mama/get_collection_info", tree_controller.mama_get_collection_info);
+
+	app.get("/cartogratree/api/v2/trees/treesnap/get_collection_info", tree_controller.treesnap_get_collection_info);
 
 	app.get("/cartogratree/api/v2/tree", tree_controller.tree_get_basic);
 	app.get("/cartogratree/api/v2/tree/snp", tree_controller.tree_get_snp); 

@@ -6070,6 +6070,90 @@ exports.force_find_treesnap_terms = function(req, res, next) {
 	}
 }
 
+exports.treesnap_get_collection_info = async function(req, res, next) {
+	console.log('Connecting to database...');
+	var rows = [];
+	var tree_id = req.query.tree_id;
+	try {
+		const client = await pool.connect();
+		await client.query("set datestyle='ISO';");
+		await client.query("SET client_encoding TO 'UTF-8';");
+		await client.query("SET bytea_output TO escape;");
+		await client.query('SET SEARCH_PATH TO "public","chado"');
+		var query_str = "SELECT * FROM ct_trees WHERE uniquename LIKE $1 AND source_id = 1;";
+		var qres = await client.query(query_str,[tree_id]);
+		rows = qres.rows;
+		var category = "";
+		for (var i=0; i<rows.length; i++) {
+			delete rows[i].latitude_precise;
+			delete rows[i].longitude_precise;
+			category = rows[i].category;
+		}
+		client.release();
+
+		// Lookup all treesnap trees with the same category and return those
+		if(category != "") {
+			const client2 = await pool.connect();
+			await client2.query("set datestyle='ISO';");
+			await client2.query("SET client_encoding TO 'UTF-8';");
+			await client2.query("SET bytea_output TO escape;");
+			await client2.query('SET SEARCH_PATH TO "public","chado"');
+			var query_str2 = "SELECT * FROM ct_trees WHERE category = $1 AND source_id = 1;";
+			var qres2 = await client2.query(query_str2,[category]);
+			rows = qres2.rows;
+			for (var i=0; i<rows.length; i++) {
+				delete rows[i].latitude_precise;
+				delete rows[i].longitude_precise;
+			}
+			client2.release();
+		}
+	}
+	catch (err) {
+		console.log(err);
+	}
+	res.status(200).json(rows);
+}
+
+exports.mama_get_collection_info = async function(req, res, next) {
+	console.log('Connecting to database...');
+	var tree_id = req.query.tree_id;
+	var rows = [];
+	try {
+		const client = await pool.connect();
+		await client.query("set datestyle='ISO';");
+		await client.query("SET client_encoding TO 'UTF-8';");
+		await client.query("SET bytea_output TO escape;");
+		await client.query('SET SEARCH_PATH TO "public","chado"');
+
+		
+		// Find project_id for the tree
+		var query_str = "SELECT * FROM public.ct_trees WHERE source_id = 6 AND uniquename = $1 LIMIT 1;";
+		var qres = await client.query(query_str,[tree_id]);
+		rows = qres.rows;
+		var mama_project_id = -1;
+		var mama_project_name = "";
+		for (var i=0; i<rows.length; i++) {
+			mama_project_id = rows[i].mama_project_id;
+			mama_project_name = rows[i].mama_project_name;
+		}
+		// var rows = pg_n_client.querySync(query_str,[analysis_id]);
+		// var query_str = "SELECT * FROM public.ct_trees WHERE source_id = 6;";
+		// var qres = await client.query(query_str,[]);
+		query_str = "SELECT * FROM public.ct_trees WHERE source_id = 6 AND mama_project_id = $1;";
+		qres = await client.query(query_str,[mama_project_id]);
+		rows = qres.rows;
+		for (var i=0; i<rows.length; i++) {
+			delete rows[i].latitude_precise;
+			delete rows[i].longitude_precise;
+		}
+		client.release();
+	}
+	catch (err) {
+		console.log(err);
+	}
+	res.status(200).json(rows);
+}
+
 // mama_get_tree_phenotypes
 exports.mama_get_tree_phenotypes = async function(req, res, next) {
 	console.log('Connecting to database...');
@@ -6121,60 +6205,77 @@ exports.force_reload_mama = async function(req, res, next) {
 			})
 		});
 
-		var page_no = 1;
-		var page_index = 0;
-		var page_total = 1;
+		var projects = [
+			{id:316, name:"MAMA Ash/EAB Surveys"},
+			{id:319, name: "MaMA Monitoring Plots Network"},
+			{id:320, name: "MaMA Lingering Ash Search"},
+			{id:1233, name: "MaMA RAMA Rapid Ash Mortality Assessment"}
+		];
+		for (var p=0; p<projects.length; p++) {
+			var project_id = projects[p].id;
+			var project_name = projects[p].name;
 
-		while (page_index < page_total) { 
-			page_index = page_index + 1;
-			try {
-				// var url = "https://anecdata.org/rest_observations_v1.json?project_id=316&page=" + page_index + "&nocache=" + Math.floor(Date.now() / 1000);
-				var url = "https://api.anecdata.org/observations?project_id=316&page=" + page_index + "&nocache=" + Math.floor(Date.now() / 1000);
-				console.log('URL:' + url);
-				var config2 = {
-					method: 'GET',
-					url: url,
-					headers: {
-						//"Accept": "application/json",
-						"Authorization": config.conf_anecdata.token_loggedin,
-						'Cache-Control': 'no-cache'
-					}
-				}
-				// console.log(config);
-				await axios_instance(config2).then(async function(response) {
-					
-					try {
-						var data = response.data;
-						// console.log(data);
-						console.log(data.pagination);
-						page_total = data.pagination.pageCount;
-						// var items = data.items; // array
-						var items = data.data; // array
-						for (var i = 0; i < items.length; i++) {
-							
-							var item = items[i];
-							var tree_id = "mama." + item.id
-							utils.mama_ash_eab_surveys_add_tree(tree_id, item);
-							var rows = item.rows;
-							for (var j = 0; j < rows.length; j++) {
-								var row = rows[j];
-								var fields = row.fields;
-								utils.mama_ash_eab_surveys_add_phenotype_rows(tree_id, fields);
-							}
-							// console.log(item);
+			// var page_no = 1;
+			var page_index = 0;
+			var page_total = 1;
+
+			//  Go through each API page until we have gone through all the pages for the project
+			while (page_index < page_total) { 
+				page_index = page_index + 1;
+				try {
+					// var url = "https://anecdata.org/rest_observations_v1.json?project_id=316&page=" + page_index + "&nocache=" + Math.floor(Date.now() / 1000);
+					var url = "https://api.anecdata.org/observations?project_id=" + project_id + "&page=" + page_index + "&nocache=" + Math.floor(Date.now() / 1000);
+					console.log('URL:' + url);
+					var config2 = {
+						method: 'GET',
+						url: url,
+						headers: {
+							//"Accept": "application/json",
+							"Authorization": config.conf_anecdata.token_loggedin,
+							'Cache-Control': 'no-cache'
 						}
 					}
-					catch (err) {
+					// console.log(config);
+					axios_instance(config2).then(async function(response) {
+						
+						try {
+							var data = response.data;
+							// console.log(data);
+							console.log(data.pagination);
+							page_total = data.pagination.pageCount;
+							// var items = data.items; // array
+							var items = data.data; // array
+							for (var i = 0; i < items.length; i++) {
+								
+								var item = items[i];
+								var tree_id = "mama." + item.id
+								await utils.mama_ash_eab_surveys_add_tree(tree_id, item, project_id, project_name);
+								var rows = item.rows;
+								for (var j = 0; j < rows.length; j++) {
+									var row = rows[j];
+									var fields = row.fields;
+									await utils.mama_ash_eab_surveys_add_phenotype_rows(tree_id, fields, project_id);
+								}
+								// console.log(item);
+							}
+						}
+						catch (err) {
+							console.log(err);
+						}
+					}).catch(function (err) {
 						console.log(err);
-					}
-				}).catch(function (err) {
+					});
+					
+					
+				}
+				catch (err) {
 					console.log(err);
-				});
-			}
-			catch (err) {
-				console.log(err);
+				}
+				console.log('Waiting 3 second before next page...');
+				await utils.sleep(3000);
 			}
 		}
+
 		res.status(200).json("success");
 		return;
 	}
@@ -7748,6 +7849,7 @@ exports.trees_shared_trees = function(req, res, next) {
 }
 
 function build_tree_query_str(query_conditions, sources) {	
+	console.log('query_conditions', JSON.stringify(query_conditions));
 	var query_str = "SELECT DISTINCT ON(uniquename) * FROM public.ct_trees WHERE";
 	//var query_str = "SELECT * FROM ct_trees_all_view WHERE";
 	if (query_conditions.length > 0) {

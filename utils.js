@@ -448,83 +448,96 @@ async function mama_ash_eab_surveys_clear_trees() {
     client.release();
 }
 
-async function mama_ash_eab_surveys_add_tree(tree_id, item) {
+async function mama_ash_eab_surveys_add_tree(tree_id, item, project_id, project_name) {
 	// Each item has a rows key which contains field data like phenotypic data
     // Each item has a rows key which contains field data like phenotypic data
     console.log('Attempt to add MAMA TREE ID:' + item.id);
-    const client = await pool.connect();
+
     var is_private = null;
     // We need to still go through all rows within this item to get to 'Ash species identification' to set black ash to is_private = 0
     var rows = item.rows;
 
+	var genus = null;
+	var species = null;
+	rows_loop:
     for (var j = 0; j < rows.length; j++) {
-		var genus = null;
-		var species = null;
+
         var row = rows[j];
         var fields = row.fields;
-        for (var j = 0; j < fields.length; j++) {
+		fields_loop:
+        for (var k = 0; k < fields.length; k++) {
             try {
-                var field = fields[j];
+                var field = fields[k];
                 var value = null;
                 var slug = field['slug'];
                 var name = field['name'];
-                if (slug.includes('ash-species-identification')) {
-                    console.log('Detected an ash-species-identification for tree :' + tree_id);
-                    if (field['value'] != null && field['value'] != 'null') {
-                        value = field['value'];
-                    }
-                    else if (field['value_id'] != null) {
-                        // Lookup frrom the picklist objects
-                        for (var k = 0; k < field['picklist'].length; k++) {
-                            var picklist_item = field['picklist'][k];
-                            if (picklist_item['id'] == field['value_id']) {
-                                value = picklist_item['value'];
-                                break;
-                            }
-                        }
-                    }
+                if (slug.includes('ash-species')) {
+
+					console.log('Detected an ash-species* for tree :' + tree_id);
+					if (field['value'] != null && field['value'] != 'null') {
+						value = field['value'];
+					}
+					else if (field['value_id'] != null) {
+						// Lookup frrom the picklist objects
+						for (var l = 0; l < field['picklist'].length; l++) {
+							var picklist_item = field['picklist'][l];
+							if (picklist_item['id'] == field['value_id']) {
+								value = picklist_item['value'];
+								break;
+							}
+						}
+					}
+					
 					
                     if (value != null && value != '') {
-						
 						var lower_value = value.toLowerCase();
 						console.log("value:" + lower_value);
 						if (lower_value.includes('black ash') || lower_value.includes('nigra')) {
 							is_private = 1;
 							genus = 'Fraxinus';
 							species = genus + ' nigra';
+							break rows_loop;
 						}
 						else if (lower_value.includes('ash sp')) {
 							genus = 'Fraxinus';
 							species = null;
+							break rows_loop;
 						}
 						else if (lower_value.includes('white ash') || lower_value.includes('americana')) {
 							genus = 'Fraxinus';
 							species = genus + ' americana';
+							break rows_loop;
 						}		
 						else if (lower_value.includes('green ash') || lower_value.includes('pennsylvanica')) {
 							genus = 'Fraxinus';
 							species = genus + ' pennsylvanica';
+							break rows_loop;
 						}
 						else if (lower_value.includes('blue ash') || lower_value.includes('quadrangulata')) {
 							genus = 'Fraxinus';
 							species = genus + ' quadrangulata';
+							break rows_loop;
 						}				
 						else if (lower_value.includes('pumpkin ash') || lower_value.includes('profunda')) {
 							genus = 'Fraxinus';
 							species = genus + ' profunda';
+							break rows_loop;
 						}
 						else if (lower_value.includes('not sure if this is ash')) {
 							genus = 'Fraxinus (unconfirmed)';
 							species = null;
+							break rows_loop;
 						}
                     }
                 }
             }
             catch (err) {
-                console.log(err);
+                console.log('error');
+				console.log(JSON.stringify(err));
             }
         }
     }
+	console.log('Genus:' + genus + " Species:" + species + " Private:" + is_private);
 
 	// Add jitter to the lat and lng values
 	var lat = item.location.lat;
@@ -571,12 +584,12 @@ async function mama_ash_eab_surveys_add_tree(tree_id, item) {
 	}
 	lng_jittered = parseFloat(lng) + generated_jitter;
 
-	
+	const client = await pool.connect();
     await client.query(
 		"INSERT INTO public.ct_trees_mama_ash_eab_surveys " + 
-		"(uniquename, species, genus, family, subkingdom, latitude, longitude, source_id, icon_type, category, is_private, latitude_precise, longitude_precise) " + 
-		"VALUES($1, $2,      $3,   $4,   $5,          $6,                $7,       $8, $9, $10,      $11,    $12,          $13) ON CONFLICT(uniquename) DO NOTHING",
-        [tree_id, species, genus, null, null,   lat_jittered, lng_jittered, 6, 4, null, is_private, item.location.lat, item.location.lng]);
+		"(uniquename, species, genus, family, subkingdom, latitude, longitude, source_id, icon_type, category, is_private, latitude_precise, longitude_precise, project_id, project_name) " + 
+		"VALUES($1, $2,      $3,   $4,   $5,          $6,                $7,       $8, $9, $10,      $11,    $12,          $13,        $14,   $15) ON CONFLICT(uniquename) DO NOTHING",
+        [tree_id, species, genus, null, null,   lat_jittered, lng_jittered, 6, 4, null, is_private, item.location.lat, item.location.lng, project_id, project_name]);
     client.release();
 }
 
@@ -586,7 +599,7 @@ async function mama_ash_eab_surveys_clear_phenotypes() {
     client.release();
 }
 
-async function mama_ash_eab_surveys_add_phenotype_rows(tree_id, fields) {
+async function mama_ash_eab_surveys_add_phenotype_rows(tree_id, fields, project_id) {
 	// Each item has a rows key which contains field data like phenotypic data
 	const client = await pool.connect()
 	for (var j = 0; j < fields.length; j++) {
@@ -595,7 +608,7 @@ async function mama_ash_eab_surveys_add_phenotype_rows(tree_id, fields) {
 			var value = null;
 			var slug = field['slug'];
 			var name = field['name'];
-			console.log('Attempt to add MAMA PHENOTYPE:' + slug);
+			// console.log('Attempt to add MAMA PHENOTYPE:' + slug);
 			if (field['value'] != null) {
 				value = field['value'];
 			}
@@ -667,10 +680,10 @@ async function mama_ash_eab_surveys_add_phenotype_rows(tree_id, fields) {
 					await client.query(
 						"INSERT INTO public.ct_trees_phenotypes_mama_ash_eab_surveys " +
 						//      1         2       3        4            5          6    7         8                 9                 10            11              12              13                 14           15         16            17             18             19
-						" (uniquename, tree_acc,name,mapped_name,phenotype_name,value,units,observable_name,observable_accession,cvterm_name,cvterm_accession,structure_name,structure_accession, structure_id, unit_id, cvterm_1_name, cvterm_1_id, cvterm_2_name, cvterm_2_id) " + 
-						" VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) ON CONFLICT(uniquename) DO NOTHING",
+						" (uniquename, tree_acc,name,mapped_name,phenotype_name,value,units,observable_name,observable_accession,cvterm_name,cvterm_accession,structure_name,structure_accession, structure_id, unit_id, cvterm_1_name, cvterm_1_id, cvterm_2_name, cvterm_2_id, project_id) " + 
+						" VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) ON CONFLICT(uniquename) DO NOTHING",
 						//          1              2     3    4    5    6    7       8      9    10   11     12       13       14          15          16           17           18              19
-						[tree_id + "." + slug, tree_id,name,null,slug,value,unit,attribute,null,null,null,structure, null, structure_id, unit_id, cvterm_1_name, cvterm_1_id, cvterm_2_name, cvterm_2_id]
+						[tree_id + "." + slug, tree_id,name,null,slug,value,unit,attribute,null,null,null,structure, null, structure_id, unit_id, cvterm_1_name, cvterm_1_id, cvterm_2_name, cvterm_2_id, project_id]
 					);
 				// }
 			}
@@ -2008,6 +2021,9 @@ function parse_json_query(data, qString) {
 			if(rules[i]["field"] == "accession") {
 				qString += "uniquename ILIKE '" + rules[i]["value"] + "%'"; 
 			}
+			else if (rules[i]["field"] == "markers") {
+				qString += "study_accession in (select accession from chado.ct_marker_types_per_study where marker_type = '" + rules[i]["value"] + "')";
+			}
 			else {
 				// qString += rules[i]["field"] + " " + opMapping[rules[i]["operator"]] + " '" + rules[i]["value"] + "'";
 				qString += rules[i]["field"] + " ILIKE '%" + rules[i]["value"] + "%'";
@@ -2181,6 +2197,7 @@ module.exports = {
 	decrypt,
 	valid_api_key,
 	execute_request,
+	sleep,
 	mama_ash_eab_surveys_clear_trees,
 	mama_ash_eab_surveys_clear_phenotypes,
 	mama_ash_eab_surveys_add_tree,
