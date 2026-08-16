@@ -188,6 +188,12 @@ module.exports = async function(app, global) {
 	app.post("/cartogratree/api/v2/analysis/insert_markers_studies_none_overlap", tree_controller.analysis_insert_markers_study_none_overlaps);
 	app.post("/cartogratree/api/v2/analysis/delete_markers_studies_none_overlap", tree_controller.analysis_delete_markers_study_none_overlaps);
 	
+	// NEW PUBLIC API ENDPOINTS FOR OBSERVATIONS
+	app.post("/cartogratree/api/v2/observations", tree_controller.observations);
+
+	app.get("/cartogratree/api/v2/pool/status", tree_controller.pool_status);
+	app.get("/cartogratree/api/v2/pool/reset", tree_controller.pool_reset);
+
 	// app.get("/cartogratree/api/v2/environmental/generate_layer_values_table")
 	// Environmental Layer Data
 	app.post("/cartogratree/api/v2/environmental/get_unique_locations_from_treeids", tree_controller.environmental_get_unique_locations_from_treeids);

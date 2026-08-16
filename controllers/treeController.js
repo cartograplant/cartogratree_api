@@ -11,7 +11,7 @@ const query_bienv4 = require("./../query_bienv4"); //to cater for BIENv4 data
 var pg_native_client = require('pg-native');
 const NextflowJobManager = require('./../includes/nextflow_job_manager.js').NextflowJobManager;
 const { Pool, Client } = require("pg"); 
-const pool = new Pool({
+var pool = new Pool({
 	host: process.env.DB_HOST,
 	port: process.env.DB_PORT,
 	database: process.env.DB_NAME,
@@ -42,6 +42,39 @@ var global = null;
 
 exports.set_global = function (global_obj) {
 	global = global_obj;
+}
+
+exports.pool_status = function (req, res, next) {
+	var result = {};
+	try {
+		result['totalCount'] = pool.totalCount;
+		result['idleCount'] = pool.idleCount;
+		result['waitingCount'] = pool.waitingCount;
+		res.status(200).json({result: result});
+	}
+	catch (err) {
+		console.log(err);
+	}
+}
+
+exports.pool_reset = function (req, res, next) {
+	try {
+		pool = new Pool({
+			host: process.env.DB_HOST,
+			port: process.env.DB_PORT,
+			database: process.env.DB_NAME,
+			user: process.env.DB_USER,
+			password: process.env.DB_PASS,
+			max: 20,
+			idleTimeoutMillis: 10000,
+			connectionTimeoutMillis: 5000, 
+		});
+		res.status(200).json({result: 'done'});
+	}
+	catch (err) {
+		console.log(err);
+		res.status(400).json({result: 'error'});
+	}
 }
 
 /**
@@ -3025,7 +3058,125 @@ exports.analysis_insert_markers_study_overlaps = async function(req, res, next) 
 	res.send(JSON.stringify(results));
 }
 
+exports.observations = async function(req, res, next) {
+	var results = {};
+	try {
+		var filters = {};
+		var pagination = {
+			page_start: 1,
+			page_size: 1
+		};
 
+		// PAGINATION
+		if (req.body.page_start != undefined) {
+			if (req.body.page_start < 0) {
+				pagination.page_start = 1;
+			}
+			else {
+				pagination.page_start = req.body.page_start;
+			}
+		}
+		if (req.body.page_size != undefined) {
+			if (req.body.page_size <= 100) {
+				pagination.page_size = req.body.page_size;
+			}
+			else {
+				pagination.page_size = 100;
+			}
+		}
+
+		results = {
+			pagination: pagination,
+			observations: []
+		};
+		
+		const client = await pool.connect();
+		await client.query("set datestyle='ISO';");
+		await client.query("SET client_encoding TO 'UTF-8';");
+		await client.query("SET bytea_output TO escape;");
+		await client.query('SET SEARCH_PATH TO "public","chado"');
+		var sql = "";
+		sql += "SELECT * FROM public.ct_trees_all_view t";
+		var where = "";
+		where += " WHERE is_private = null ";
+		var limit = " LIMIT " + pagination.page_size + " OFFSET " + (pagination.page_start - 1) * pagination.page_size;
+		sql += limit;
+		console.log(sql);
+		var qres = await client.query(sql, []);
+		var rows = qres.rows;
+		if(rows.length > 0) {
+			results['observations'] = rows;
+		}
+
+		// Get all tree_ids (uniquenames) for the observations
+		// Do extra meta data manipulations
+		var tree_ids = [];
+		for (var i = 0; i < results['observations'].length; i++) {
+			tree_ids.push(results['observations'][i].uniquename);
+			if (results['observations'][i].uniquename != null) {
+				if (results['observations'][i].uniquename.startsWith('TGDR')) {
+					// Get the study_id from the uniquename
+					var study_id = results['observations'][i].uniquename.split('-')[0];
+					results['observations'][i]['study_accession'] = study_id;
+				}
+			}
+		}
+
+		// DEBUG
+		console.log(JSON.stringify(tree_ids));
+		var tree_ids_csv = tree_ids.join(',');
+		console.log(tree_ids_csv);
+
+		// Get genotype data for the tree_ids
+		var sql = "";
+		sql += "SELECT * FROM chado.new_geno_view t";
+		var where = "";
+		where += " WHERE tree_acc IN ($1) ";
+		sql += where;
+		console.log(sql);
+		var qres = await client.query(sql, [tree_ids_csv]);
+		var rows_genotypes = qres.rows;
+		// Add genotype data to the observations
+		for (var i = 0; i < results['observations'].length; i++) {
+			var tree_id = results['observations'][i].uniquename;
+			var genotype_data = null;
+			for (var j = 0; j < rows_genotypes.length; j++) {
+				if (rows_genotypes[j].uniquename == tree_id) {
+					genotype_data = rows_genotypes[j];
+					break;
+				}
+			}
+			results['observations'][i]['genotype_data'] = genotype_data;
+		}
+	
+		// Get phenotype data for the tree_ids
+		var sql = "";
+		sql += "SELECT * FROM chado.new_pheno_view t";
+		var where = "";
+		where += " WHERE tree_acc IN ($1) ";
+		sql += where;
+		console.log(sql);
+		var qres = await client.query(sql, [tree_ids_csv]);
+		var rows_phenotypes = qres.rows;
+		// Add phenotype data to the observations
+		for (var i = 0; i < results['observations'].length; i++) {
+			var tree_id = results['observations'][i].uniquename;
+			var phenotype_data = null;
+			for (var j = 0; j < rows_phenotypes.length; j++) {
+				if (rows_phenotypes[j].uniquename == tree_id) {
+					phenotype_data = rows_phenotypes[j];
+					break;
+				}
+			}
+			results['observations'][i]['phenotype_data'] = phenotype_data;
+		}
+		client.release();
+	}
+	catch (err) {
+		console.log(err);
+	}
+	res.status(200).send(JSON.stringify(results));
+}
 
 /**
  * This should return a new analysis id
@@ -3101,7 +3252,7 @@ exports.analysis_insert_markers_study_overlaps = async function(req, res, next) 
 		return;
 	}
 	catch (err) {
-		console.log(err);
+		// console.log(err);
 		console.log(JSON.stringify(err));
 	}
 	res.send(JSON.stringify(results));
@@ -7850,13 +8001,16 @@ exports.trees_shared_trees = function(req, res, next) {
 
 function build_tree_query_str(query_conditions, sources) {	
 	console.log('query_conditions', JSON.stringify(query_conditions));
-	var query_str = "SELECT DISTINCT ON(uniquename) * FROM public.ct_trees WHERE";
+	// !!!!!!!!
+	// ALWAYS USE CT_TREES_ALL_VIEW BECAUSE IT CONTAINS COLUMNS NEEDED FOR FILTERS
+	// THAT ARE NOT IN CT_TREES view
+	var query_str = "SELECT DISTINCT ON(uniquename) * FROM public.ct_trees_all_view WHERE";
 	//var query_str = "SELECT * FROM ct_trees_all_view WHERE";
 	if (query_conditions.length > 0) {
 		query_str = query_str + " " + query_conditions + " AND (";
 	}
 	else {
-		query_str = "SELECT DISTINCT ON(uniquename) * FROM public.ct_trees WHERE (";
+		query_str = "SELECT DISTINCT ON(uniquename) * FROM public.ct_trees_all_view WHERE (";
 	}
 
 	for (var s = 0; s < sources.length; s++) {

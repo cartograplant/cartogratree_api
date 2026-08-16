@@ -543,6 +543,7 @@ var ctapi_wss = {
 				header_line += "," + data_properties_objects[i]['property_value'] + "_unit_labels";
 			}
 			//console.log("Header line:" + header_line);
+			wss.send('environmental_data_csv_line_start::true');
 			wss.send('environmental_data_csv_line::' + header_line);
 
 			// Perform look up for each tree
@@ -556,6 +557,7 @@ var ctapi_wss = {
 				await ctapi_wss.api_generate_environmental_data_for_csv_single_tree(client, wss, gis_url, trees_arr[i], data_properties_objects);
 				// await sleep(1000);
 			}
+			wss.send('environmental_data_csv_line_complete::true');
 			try {
 				client.release();
 			} catch (err) {
