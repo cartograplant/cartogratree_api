@@ -19,10 +19,10 @@ node_modules/*
 crash_report.txt
 plink/*
 vcftools/*
-# Allow
-!package.json
 .nextflow
 .nextflow/*
 work/*
 logs/*
 utils/run_coordinate_cleaner_treesnap.sh
+# Allow
+!package.json
