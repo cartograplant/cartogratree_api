@@ -79,9 +79,11 @@ const pool = new Pool({
 	user: config.conf.user,
 	password: config.conf.password,
 	max: 20,
-	idleTimeoutMillis: 15000,
-	connectionTimeoutMillis: 15000, 
+	idleTimeoutMillis: 10000,
+	connectionTimeoutMillis: 5000, 
 });
+// Put the pool into the global object so it can be accessed in other modules and controller
+global['pool'] = pool;
 
 var screen_enabled = false;
 

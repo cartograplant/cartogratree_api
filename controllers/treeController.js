@@ -42,6 +42,10 @@ var global = null;
 
 exports.set_global = function (global_obj) {
 	global = global_obj;
+	// Override local pool with global pool if it exists
+	if(global_obj.pool != undefined) {
+		pool = global_obj.pool;
+	}
 }
 
 exports.pool_status = function (req, res, next) {
@@ -7326,8 +7330,11 @@ exports.genotypes_from_vcf_tree_get = function(req, res, next) {
 	var vcf_location = req.body.vcf_location;
 	if (vcf_location != undefined) {
 		vcf_location = vcf_location.replaceAll("..","");
+		if (vcf_location.startsWith("/isg/") == false) {
+			res.status(200).json([]);
+			return;
+		}
 	}
-	
 	
 	utils.valid_api_key(api_key, res, function() {
 		var key = tree_id + "_genotype_from_vcf";
