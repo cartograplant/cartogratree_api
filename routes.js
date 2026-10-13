@@ -20,6 +20,7 @@ module.exports = async function(app, global) {
 	//API V2 new end points and controllers
 	var tree_controller = require("./controllers/treeController");
 	tree_controller.set_global(global);
+	global['tree_controller'] = tree_controller;
 	var user_controller = require("./controllers/userController");  
 
 	app.get("/cartogratree/api/v2/wfid/oauth_request", tree_controller.wfid_oauth_token_request);

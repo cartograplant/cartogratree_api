@@ -220,6 +220,19 @@ if(screen_enabled) {
 
 // Every 1 minute cron
 var CronJob = require('cron').CronJob;
+
+// Every midnight cron
+var jobmidnight = new CronJob('0 0 0 * * *', async function() {
+	console.log('Running midnight cron job to reset the db pool');
+	try {
+		global['tree_controller'].pool_reset_internal();
+	}
+	catch (err) {
+		console.log(err);
+	}
+}, null, true, 'America/Los_Angeles');
+jobmidnight.start();
+
 var job1m = new CronJob('0 */1 * * * *', function() {
   // console.log('You will see this message every second');
   const memory_used = process.memoryUsage().heapUsed / 1024 / 1024;
@@ -1346,6 +1359,7 @@ const conf = require('./config.js');
 const { exit } = require('process');
 const { url } = require('inspector');
 const e = require('cors');
+const { job } = require('cron');
 var pg_pool = new pg.Pool(conf.conf);
 
 //Begin listening for connections and messages

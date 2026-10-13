@@ -61,6 +61,31 @@ exports.pool_status = function (req, res, next) {
 	}
 }
 
+exports.pool_reset_internal = async function () {
+	try {
+		console.log('Resetting pool by ending the old one first for the sake of memory');
+		await pool.end();
+	}
+	catch (err) {
+		console.log(err);
+	}
+	try {
+		pool = new Pool({
+			host: process.env.DB_HOST,
+			port: process.env.DB_PORT,
+			database: process.env.DB_NAME,
+			user: process.env.DB_USER,
+			password: process.env.DB_PASS,
+			max: 20,
+			idleTimeoutMillis: 10000,
+			connectionTimeoutMillis: 5000, 
+		});
+	}
+	catch (err) {
+		console.log(err);
+	}
+}
+
 exports.pool_reset = function (req, res, next) {
 	try {
 		pool = new Pool({
